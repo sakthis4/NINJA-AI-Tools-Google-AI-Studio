@@ -1,5 +1,5 @@
 {
-  "name": "PDF Compliance Dashboard",
-  "description": "An application that uses a user-provided checklist to analyze a submitted PDF (book or journal) and prepares a comprehensive compliance dashboard with source links and evidence.",
+  "name": "S4Carlisle AI Initiatives for Publishing Domain",
+  "description": "A prototype for a publisher-grade workflow application with AI tools, user and token management, and a metadata extraction feature powered by the Gemini API.",
   "requestFramePermissions": []
 }
