@@ -1,0 +1,5 @@
+{
+  "name": "PDF Compliance Dashboard",
+  "description": "An application that uses a user-provided checklist to analyze a submitted PDF (book or journal) and prepares a comprehensive compliance dashboard with source links and evidence.",
+  "requestFramePermissions": []
+}
