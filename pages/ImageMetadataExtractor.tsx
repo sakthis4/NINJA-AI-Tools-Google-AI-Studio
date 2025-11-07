@@ -23,7 +23,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
 
     const onDrop = useCallback((acceptedFiles: File[]) => {
         const newImageAssets: ImageAsset[] = acceptedFiles.map(file => ({
-            id: crypto.randomUUID(),
+            id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`,
             file,
             previewUrl: URL.createObjectURL(file),
             status: 'pending'
@@ -66,7 +66,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
         setStatus('processing');
         const assetsToProcess = imageAssets.filter(a => a.status === 'pending');
 
-        await Promise.all(assetsToProcess.map(async (asset) => {
+        for (const [index, asset] of assetsToProcess.entries()) {
             setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'processing' } : a));
             try {
                 const base64 = await new Promise<string>((resolve, reject) => {
@@ -83,9 +83,13 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'error', error: errorMessage } : a));
             }
-        }));
 
-        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor', promptTokens: 0, responseTokens: 0 });
+            if (index < assetsToProcess.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1100));
+            }
+        }
+
+        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor' });
         setStatus('done');
         addToast({ type: 'success', message: `Processing complete.` });
         if (imageAssets.length > 0 && !selectedAssetId) {

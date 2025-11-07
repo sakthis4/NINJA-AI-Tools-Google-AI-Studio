@@ -1,4 +1,4 @@
-import React, { createContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import React, { createContext, useState, ReactNode, useCallback, useMemo, useEffect } from 'react';
 import { User, Role, UsageLog, ToastData } from '../types';
 import { USERS, USAGE_LOGS } from '../constants';
 
@@ -12,7 +12,7 @@ interface AppContextType {
   deleteUser: (userId: number) => void;
   updateUser: (user: User) => void;
   usageLogs: UsageLog[];
-  addUsageLog: (log: Omit<UsageLog, 'id' | 'timestamp'>) => { promptTokens: number, responseTokens: number };
+  addUsageLog: (log: Omit<UsageLog, 'id' | 'timestamp' | 'promptTokens' | 'responseTokens'>) => { promptTokens: number, responseTokens: number };
   toasts: ToastData[];
   addToast: (toast: Omit<ToastData, 'id'>) => void;
   removeToast: (id: string) => void;
@@ -20,12 +20,40 @@ interface AppContextType {
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// Helper to read from localStorage safely
+const getStoredValue = <T,>(key: string, initialValue: T): T => {
+    try {
+        const item = window.localStorage.getItem(key);
+        return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+        console.error(`Error reading localStorage key “${key}”:`, error);
+        return initialValue;
+    }
+};
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [users, setUsers] = useState<User[]>(USERS);
-  const [currentUser, setCurrentUser] = useState<User | null>(users.find(u => u.role === Role.Admin) || null);
-  const [usageLogs, setUsageLogs] = useState<UsageLog[]>(USAGE_LOGS);
+  const [users, setUsers] = useState<User[]>(() => getStoredValue('app_users', USERS));
+  const [usageLogs, setUsageLogs] = useState<UsageLog[]>(() => getStoredValue('app_usage_logs', USAGE_LOGS));
+  const [currentUser, setCurrentUser] = useState<User | null>(users.find(u => u.role === Role.Admin) || users[0] || null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+
+  // Persist users and usageLogs to localStorage
+  useEffect(() => {
+      try {
+          window.localStorage.setItem('app_users', JSON.stringify(users));
+      } catch (error) {
+          console.error("Failed to save users to localStorage:", error);
+      }
+  }, [users]);
+  
+  useEffect(() => {
+      try {
+          window.localStorage.setItem('app_usage_logs', JSON.stringify(usageLogs));
+      } catch (error) {
+          console.error("Failed to save usage logs to localStorage:", error);
+      }
+  }, [usageLogs]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
@@ -71,7 +99,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addToast({type: 'success', message: `User ${updatedUser.email} updated.`});
   }, [addToast]);
   
-  const addUsageLog = useCallback((log: Omit<UsageLog, 'id' | 'timestamp'>): { promptTokens: number, responseTokens: number } => {
+  const addUsageLog = useCallback((log: Omit<UsageLog, 'id' | 'timestamp' | 'promptTokens' | 'responseTokens'>): { promptTokens: number, responseTokens: number } => {
     // In a real app, tokens would come from the API response. Here we mock them.
     const promptTokens = Math.floor(Math.random() * 3000) + 500;
     const responseTokens = Math.floor(Math.random() * 2000) + 300;
@@ -79,7 +107,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const newLog: UsageLog = {
       ...log,
-      id: `log_${Date.now()}`,
+      id: `log_${Date.now()}_${Math.random()}`,
       timestamp: new Date().toISOString(),
       promptTokens,
       responseTokens

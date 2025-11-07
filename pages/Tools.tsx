@@ -87,7 +87,7 @@ export default function Tools() {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Compliance Checker</h3>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
-              Run pre-submission checks for plagiarism, image integrity, reference formatting, and journal guideline compliance.
+              Compare a document against a set of rules (e.g., journal guidelines, book style guides) to identify and report on non-compliance issues.
             </p>
           </div>
           <button

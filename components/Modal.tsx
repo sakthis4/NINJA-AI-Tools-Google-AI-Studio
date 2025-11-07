@@ -8,7 +8,6 @@ interface ModalProps {
   children: ReactNode;
 }
 
-// FIX: Changed component to be a React.FC to potentially resolve typing issues with children prop.
 const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
 

@@ -9,7 +9,6 @@ const icons = {
   info: <InfoIcon className="h-6 w-6 text-blue-500" />,
 };
 
-// FIX: Explicitly type Toast as React.FC to resolve issues with the 'key' prop in loops.
 interface ToastProps {
   id: string;
   type: 'success' | 'error' | 'info';
