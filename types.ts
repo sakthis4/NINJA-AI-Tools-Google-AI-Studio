@@ -7,6 +7,7 @@ export enum Role {
 export interface User {
   id: number;
   email: string;
+  password?: string; // Add password for login
   role: Role;
   tokenCap: number;
   tokensUsed: number;
@@ -107,6 +108,7 @@ export interface ManuscriptFile {
   status: ManuscriptStatus;
   report?: ComplianceFinding[];
   logs?: string[];
+  progress?: number;
 }
 
 export interface ProjectFolder {
@@ -126,6 +128,7 @@ export interface PdfFile {
   status: PdfFileStatus;
   assets?: ExtractedAsset[];
   logs?: string[];
+  progress?: number;
 }
 
 export interface MetadataProjectFolder {

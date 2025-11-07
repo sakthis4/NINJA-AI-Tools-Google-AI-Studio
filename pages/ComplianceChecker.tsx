@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -79,7 +80,7 @@ const renderStatusIcon = (status: FindingStatus) => {
 const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ status }) => {
     const styles = {
         queued: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-        processing: 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-200 animate-pulse',
+        processing: 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
         completed: 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200',
         error: 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200',
     };
@@ -131,8 +132,8 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             acceptedFiles.map(async (file) => {
                 const id = Math.random().toString(36).substring(2, 9);
                 const fileBuffer = await file.arrayBuffer();
-                // FIX: Pass the file buffer as an object with a 'data' property to pdfjsLib.getDocument.
-                const pdf = await pdfjsLib.getDocument({ data: fileBuffer }).promise;
+                // FIX: Pass the file buffer as a Uint8Array to pdfjsLib.getDocument.
+                const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(fileBuffer) }).promise;
                 const textContent = await extractTextFromPdf(pdf);
                 return { id, file: { id, name: file.name, textContent } };
             })
@@ -146,7 +147,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const newManuscripts: ManuscriptFile[] = acceptedFiles.map(file => {
             const id = Math.random().toString(36).substring(2, 9);
             transientFiles.current.set(id, file); // Store file object in ref
-            return { id, name: file.name, status: 'queued', logs: [] };
+            return { id, name: file.name, status: 'queued', logs: [], progress: 0 };
         });
         setFolders(prev => prev.map(f => f.id === folderId ? { ...f, manuscripts: [...f.manuscripts, ...newManuscripts] } : f));
         setProcessingQueue(prev => [...prev, ...newManuscripts.map(m => m.id)]);
@@ -211,30 +212,58 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             
-            updateManuscript('processing', {});
+            updateManuscript('processing', { progress: 0 });
             addComplianceLog(manuscriptId, "Processing started.");
             try {
                 addComplianceLog(manuscriptId, "Extracting text from manuscript PDF...");
-                // FIX: Pass the file buffer as an object with a 'data' property to pdfjsLib.getDocument.
-                const manuscriptDoc = await pdfjsLib.getDocument({ data: await fileObject.arrayBuffer() }).promise;
+                const manuscriptFileBuffer = await fileObject.arrayBuffer();
+                const manuscriptDoc = await pdfjsLib.getDocument({ data: new Uint8Array(manuscriptFileBuffer) }).promise;
                 const manuscriptText = await extractTextFromPdf(manuscriptDoc);
-                addComplianceLog(manuscriptId, `Manuscript text extracted (${manuscriptText.length} chars).`);
+                
+                addComplianceLog(manuscriptId, `Manuscript text extracted (${manuscriptText.length} chars). Chunking text...`);
+                const pageChunks = manuscriptText.split(/(?=\[Page \d+\])/g);
+                const CHUNK_SIZE_PAGES = 25; // Process 25 pages at a time
+                const textChunks = [];
+                for (let i = 0; i < pageChunks.length; i += CHUNK_SIZE_PAGES) {
+                    textChunks.push(pageChunks.slice(i, i + CHUNK_SIZE_PAGES).join(''));
+                }
+                addComplianceLog(manuscriptId, `Split into ${textChunks.length} chunks.`);
 
-                addComplianceLog(manuscriptId, "Combining rule documents...");
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
                 addComplianceLog(manuscriptId, `Combined rules text (${rulesText.length} chars). Calling Gemini API...`);
 
-                const report = await performComplianceCheck(manuscriptText, rulesText);
-                addComplianceLog(manuscriptId, `API call successful. Found ${report.length} compliance items.`);
+                let allFindings: ComplianceFinding[] = [];
+                for (const [index, chunk] of textChunks.entries()) {
+                    const progress = Math.round(((index + 1) / textChunks.length) * 100);
+                    addComplianceLog(manuscriptId, `Processing chunk ${index + 1}/${textChunks.length}...`);
+                    updateManuscript('processing', { progress });
+
+                    try {
+                        const reportForChunk = await performComplianceCheck(chunk, rulesText);
+                        if (reportForChunk.length > 0) {
+                            addComplianceLog(manuscriptId, `Found ${reportForChunk.length} potential issues in chunk ${index + 1}.`);
+                            allFindings.push(...reportForChunk);
+                        }
+                    } catch (chunkError) {
+                        const message = chunkError instanceof Error ? chunkError.message : "An unknown error occurred during chunk processing.";
+                        addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${message}`);
+                    }
+                    
+                    if (index < textChunks.length - 1) {
+                       await new Promise(resolve => setTimeout(resolve, 1500)); // Delay between chunks
+                    }
+                }
+
+                addComplianceLog(manuscriptId, `API calls successful. Found a total of ${allFindings.length} compliance items.`);
                 addUsageLog({ userId: currentUser!.id, toolName: 'Compliance Checker' });
-                updateManuscript('completed', { report });
+                updateManuscript('completed', { report: allFindings, progress: 100 });
             } catch (error) {
                 const message = error instanceof Error ? error.message : "An unknown error occurred.";
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${message}`);
                 updateManuscript('error', {});
             } finally {
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Delay between jobs
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 setIsProcessing(false);
                 setProcessingQueue(q => q.slice(1));
             }
@@ -256,7 +285,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-a.href = url;
+        a.href = url;
         a.download = `${manuscript.name}.log.txt`;
         a.click();
         URL.revokeObjectURL(url);
@@ -349,16 +378,16 @@ const ProfileCard = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete,
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden transition-all duration-300">
-            <div className="p-4 flex justify-between items-center">
+            <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left">
                 <div>
                     <p className="font-bold text-lg text-gray-800 dark:text-gray-100">{profile.name}</p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{profile.ruleFileIds.length} rule file(s)</p>
                 </div>
-                <div className="space-x-2">
-                    <button onClick={() => onExpandToggle(profile.id)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></button>
-                    <button onClick={() => onDelete(profile.id)} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                <div className="flex items-center space-x-2">
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(profile.id)}} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                    <ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
                 </div>
-            </div>
+            </button>
             {isExpanded && <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
                 {profile.ruleFileIds.map(id => (
                     <div key={id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md">
@@ -377,35 +406,52 @@ const ProfileCard = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete,
     );
 };
 
+const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete }) => {
+    return (
+        <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md">
+            <div className="flex justify-between items-center">
+                <p className="text-sm truncate flex-1">{manuscript.name}</p>
+                <div className="flex items-center space-x-3 ml-4 flex-shrink-0">
+                    <ManuscriptStatusIndicator status={manuscript.status} />
+                    {manuscript.status === 'completed' && <button onClick={() => onViewReport(manuscript)} className="text-xs text-primary-500 hover:underline">Report</button>}
+                    <button onClick={() => onViewLogs(manuscript)} className="text-gray-400 hover:text-gray-200" title="View Logs"><ClipboardListIcon className="h-4 w-4"/></button>
+                    <button onClick={() => onManuscriptDelete(manuscript.id)} className="text-gray-400 hover:text-red-500"><XIcon className="h-4 w-4"/></button>
+                </div>
+            </div>
+            {manuscript.status === 'processing' && (
+                <div className="mt-2">
+                    <div className="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-1.5">
+                        <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const FolderCard = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs }: any) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (
          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden transition-all duration-300">
-            <div className="p-4 flex justify-between items-center">
+            <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left">
                 <div>
                     <p className="font-bold text-lg text-gray-800 dark:text-gray-100">{folder.name}</p>
-                     <select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="mt-1 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md p-1 focus:ring-purple-500 focus:border-purple-500">
-                        <option value="">-- Map a Profile --</option>
-                        {profiles.map((p: ComplianceProfile) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                     <div className="mt-1" onClick={e => e.stopPropagation()}>
+                        <select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md p-1 focus:ring-purple-500 focus:border-purple-500">
+                            <option value="">-- Map a Profile --</option>
+                            {profiles.map((p: ComplianceProfile) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                     </div>
                 </div>
-                <div className="space-x-2">
-                    <button onClick={() => onExpandToggle(folder.id)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></button>
-                    <button onClick={() => onDelete(folder.id)} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                <div className="flex items-center space-x-2">
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                    <ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
                 </div>
-            </div>
+            </button>
             {isExpanded && <div className="p-4 border-t border-gray-200 dark:border-gray-700">
                 <div className="space-y-2">
                     {folder.manuscripts.map((m: ManuscriptFile) => (
-                        <div key={m.id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md">
-                            <p className="text-sm truncate flex-1">{m.name}</p>
-                            <div className="flex items-center space-x-3 ml-4 flex-shrink-0">
-                                <ManuscriptStatusIndicator status={m.status} />
-                                {m.status === 'completed' && <button onClick={() => onViewReport(m)} className="text-xs text-primary-500 hover:underline">Report</button>}
-                                <button onClick={() => onViewLogs(m)} className="text-gray-400 hover:text-gray-200" title="View Logs"><ClipboardListIcon className="h-4 w-4"/></button>
-                                <button onClick={() => onManuscriptDelete(m.id)} className="text-gray-400 hover:text-red-500"><XIcon className="h-4 w-4"/></button>
-                            </div>
-                        </div>
+                        <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} />
                     ))}
                 </div>
                 <div {...getRootProps()} className="mt-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 transition-colors">

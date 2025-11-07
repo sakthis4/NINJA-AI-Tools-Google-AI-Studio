@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
 import { ExtractedAsset, AssetType, ComplianceFinding } from '../types';
 
@@ -146,7 +147,6 @@ export async function extractAssetsFromPage(pageImageBase64: string): Promise<Om
     try {
         const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            // FIX: The 'contents' property should be a Content object, not an array containing a Content object for multipart requests.
             contents: { parts: [imagePart, textPart] },
             config: {
                 responseMimeType: 'application/json',
@@ -197,7 +197,6 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
     try {
         const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            // FIX: The 'contents' property should be a Content object, not an array containing a Content object for multipart requests.
             contents: { parts: [imagePart, textPart] },
             config: {
                 responseMimeType: 'application/json',
@@ -215,19 +214,19 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
 
 export async function performComplianceCheck(manuscriptText: string, rulesText: string): Promise<ComplianceFinding[]> {
     const prompt = `
-        You are a meticulous compliance editor. Your task is to compare the provided 'MANUSCRIPT' against the provided 'RULES DOCUMENT'.
+        You are a meticulous compliance editor. Your task is to compare the provided 'MANUSCRIPT CHUNK' against the provided 'RULES DOCUMENT'.
         
-        Analyze the RULES DOCUMENT page by page to extract all submission rules (e.g., title length, affiliation format, funding disclosures, data availability, conflicts of interest, reference style, etc.).
+        Analyze the RULES DOCUMENT to understand all submission rules.
         
-        Then, carefully check the manuscript against each rule you identified.
+        Then, carefully check the MANUSCRIPT CHUNK against each rule.
         
-        For every major rule found in the RULES DOCUMENT, provide a compliance finding according to the provided JSON schema. Be exhaustive and report on all key requirements.
-        - If the manuscript complies with a rule, mark it as 'pass'.
+        For every rule that you can verify (either pass or fail) based *only* on the content within this specific CHUNK, provide a compliance finding according to the provided JSON schema. If evidence for a rule is not present in this chunk, do not report on it.
+        - If the chunk complies with a rule, mark it as 'pass'.
         - If it clearly violates a rule, mark it as 'fail'.
-        - If compliance is ambiguous or a potential issue is detected, mark it as 'warn'.
+        - If compliance is ambiguous, mark it as 'warn'.
         - Provide exact quotes and page numbers from both documents for every finding.
 
-        MANUSCRIPT TEXT:
+        MANUSCRIPT CHUNK:
         ${manuscriptText}
 
         RULES DOCUMENT TEXT:

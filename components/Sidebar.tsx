@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View } from '../App';
 import { useAppContext } from '../hooks/useAppContext';
-import { ToolsIcon, DashboardIcon, AdminIcon, HelpIcon, MenuIcon, XIcon, ChevronLeftIcon } from './icons/Icons';
+import { ToolsIcon, DashboardIcon, AdminIcon, HelpIcon, MenuIcon, XIcon, ChevronLeftIcon, CodeIcon } from './icons/Icons';
 import Modal from './Modal';
 import { HELP_CONTENT } from '../constants';
 
@@ -41,6 +41,7 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
   const navItems = [
     { id: 'tools', label: 'Tools', icon: ToolsIcon, visible: true },
     { id: 'dashboard', label: 'Usage Dashboard', icon: DashboardIcon, visible: true },
+    { id: 'api', label: 'API Integration', icon: CodeIcon, visible: true },
     { id: 'admin', label: 'Admin Panel', icon: AdminIcon, visible: currentUser?.role === 'Admin' },
   ];
 

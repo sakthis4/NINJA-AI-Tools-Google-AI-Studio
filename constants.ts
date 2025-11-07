@@ -3,7 +3,8 @@ import { User, Role, UsageLog } from './types';
 export const USERS: User[] = [
   {
     id: 1,
-    email: 'admin@example.com',
+    email: 'admin@s4carlisle.com',
+    password: 'password123',
     role: Role.Admin,
     tokenCap: 1000000,
     tokensUsed: 12500,
@@ -12,7 +13,8 @@ export const USERS: User[] = [
   },
   {
     id: 2,
-    email: 'user@example.com',
+    email: 'user@s4carlisle.com',
+    password: 'password123',
     role: Role.User,
     tokenCap: 50000,
     tokensUsed: 45000,
@@ -21,7 +23,8 @@ export const USERS: User[] = [
   },
   {
     id: 3,
-    email: 'inactive@example.com',
+    email: 'inactive@s4carlisle.com',
+    password: 'password123',
     role: Role.User,
     tokenCap: 20000,
     tokensUsed: 19950,

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset } from '../types';
@@ -76,6 +77,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                     reader.onerror = error => reject(error);
                 });
 
+                // FIX: The function call was missing its arguments.
                 const metadata = await generateMetadataForImage(base64, asset.file.type);
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'done', metadata: { ...metadata, id: a.id } } : a));
 

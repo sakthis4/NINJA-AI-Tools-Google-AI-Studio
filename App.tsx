@@ -7,8 +7,10 @@ import UsageDashboard from './pages/UsageDashboard';
 import AdminPanel from './pages/AdminPanel';
 import { useAppContext } from './hooks/useAppContext';
 import ToastContainer from './components/ToastContainer';
+import LoginPage from './pages/LoginPage';
+import ApiIntegration from './pages/ApiIntegration';
 
-export type View = 'tools' | 'dashboard' | 'admin';
+export type View = 'tools' | 'dashboard' | 'admin' | 'api';
 
 export default function App() {
   const { theme, currentUser } = useAppContext();
@@ -29,12 +31,23 @@ export default function App() {
     }
   }, [currentUser, activeView]);
 
+  if (!currentUser) {
+    return (
+        <>
+            <LoginPage />
+            <ToastContainer />
+        </>
+    );
+  }
+
   const renderView = () => {
     switch (activeView) {
       case 'tools':
         return <Tools />;
       case 'dashboard':
         return <UsageDashboard />;
+      case 'api':
+        return <ApiIntegration />;
       case 'admin':
         return currentUser?.role === 'Admin' ? <AdminPanel /> : <Tools />;
       default:
