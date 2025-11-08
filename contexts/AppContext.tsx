@@ -1,5 +1,5 @@
-import React, { createContext, useState, ReactNode, useCallback, useMemo, useEffect } from 'react';
-import { User, Role, UsageLog, ToastData, UserDataStore, PdfFile, ManuscriptFile, GeneratedReport, AppState } from '../types';
+import React, { createContext, useReducer, ReactNode, useCallback, useMemo, useEffect } from 'react';
+import { User, Role, UsageLog, UserDataStore, PdfFile, ManuscriptFile, AppState, StatusBarMessage } from '../types';
 import { USERS, USAGE_LOGS } from '../constants';
 import { loadInitialState, STORAGE_KEY } from '../services/migrationService';
 
@@ -13,15 +13,11 @@ interface AppContextType {
   updateUser: (user: User) => void;
   usageLogs: UsageLog[];
   addUsageLog: (log: Omit<UsageLog, 'id' | 'timestamp' | 'promptTokens' | 'responseTokens'>) => { promptTokens: number, responseTokens: number };
-  toasts: ToastData[];
-  addToast: (toast: Omit<ToastData, 'id'>) => void;
-  removeToast: (id: string) => void;
+  statusBarMessage: StatusBarMessage | null;
+  setStatusBarMessage: (message: string, type: 'success' | 'error' | 'info') => void;
   login: (email: string, password?: string) => boolean;
   logout: () => void;
-  
-  // User-specific data store and management functions
   currentUserData: UserDataStore | null;
-  // Metadata Extractor Actions
   createMetadataFolder: (name: string) => void;
   deleteMetadataFolder: (folderId: string) => void;
   addPdfFilesToFolder: (folderId: string, files: PdfFile[]) => void;
@@ -30,7 +26,6 @@ interface AppContextType {
   deletePdfFile: (folderId: string, pdfId: string) => void;
   updateMetadataAsset: (pdfId: string, assetId: string, updates: Partial<any>) => void;
   deleteMetadataAsset: (pdfId: string, assetId: string) => void;
-  // Compliance Checker Actions
   createComplianceProfile: (name: string) => void;
   deleteComplianceProfile: (profileId: string) => void;
   addRuleFilesToProfile: (profileId: string, newRuleFiles: Record<string, any>) => void;
@@ -41,8 +36,6 @@ interface AppContextType {
   addManuscriptsToFolder: (folderId: string, files: ManuscriptFile[]) => void;
   updateManuscript: (manuscriptId: string, updates: Partial<ManuscriptFile>) => void;
   deleteManuscript: (folderId: string, manuscriptId: string) => void;
-  // Report Generation
-  addGeneratedReport: (report: Omit<GeneratedReport, 'id' | 'timestamp'>) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -52,147 +45,158 @@ const defaultUserData: UserDataStore = {
     complianceFolders: [],
     complianceProfiles: [],
     ruleFiles: {},
-    generatedReports: [],
 };
 
-const defaultAppState: AppState = {
-    users: USERS,
-    usageLogs: USAGE_LOGS,
-    currentUserId: null,
-    appData: {
-        1: defaultUserData,
-        2: defaultUserData,
-        3: defaultUserData
-    },
+// --- REDUCER SETUP ---
+
+interface CombinedState {
+  theme: 'light' | 'dark';
+  statusBarMessage: StatusBarMessage | null;
+  appState: AppState;
+  isInitialized: boolean;
+}
+
+type Action =
+  | { type: 'INITIALIZE_STATE'; payload: AppState }
+  | { type: 'SET_INITIALIZED' }
+  | { type: 'TOGGLE_THEME' }
+  | { type: 'SET_STATUS_MESSAGE'; payload: StatusBarMessage }
+  | { type: 'CLEAR_STATUS_MESSAGE'; payload: { id: string } }
+  | { type: 'LOGIN'; payload: User }
+  | { type: 'LOGOUT' }
+  | { type: 'ADD_USER'; payload: User }
+  | { type: 'DELETE_USER'; payload: number }
+  | { type: 'UPDATE_USER'; payload: User }
+  | { type: 'ADD_USAGE_LOG'; payload: UsageLog }
+  | { type: 'UPDATE_CURRENT_USER_STORE'; payload: (store: UserDataStore) => UserDataStore };
+
+const appReducer = (state: CombinedState, action: Action): CombinedState => {
+  switch (action.type) {
+    case 'INITIALIZE_STATE':
+        return { ...state, appState: action.payload };
+    case 'SET_INITIALIZED':
+        return { ...state, isInitialized: true };
+    case 'TOGGLE_THEME':
+      return { ...state, theme: state.theme === 'light' ? 'dark' : 'light' };
+    case 'SET_STATUS_MESSAGE':
+      return { ...state, statusBarMessage: action.payload };
+    case 'CLEAR_STATUS_MESSAGE':
+      if (state.statusBarMessage && state.statusBarMessage.id === action.payload.id) {
+          return { ...state, statusBarMessage: null };
+      }
+      return state;
+    case 'LOGIN':
+        return { ...state, appState: { ...state.appState, currentUserId: action.payload.id, users: state.appState.users.map(u => u.id === action.payload.id ? action.payload : u) } };
+    case 'LOGOUT':
+        return { ...state, appState: { ...state.appState, currentUserId: null } };
+    case 'ADD_USER':
+        return { ...state, appState: { ...state.appState, users: [...state.appState.users, action.payload], appData: { ...state.appState.appData, [action.payload.id]: { ...defaultUserData } } } };
+    case 'DELETE_USER': {
+        const newAppData = { ...state.appState.appData };
+        delete newAppData[action.payload];
+        return { ...state, appState: { ...state.appState, users: state.appState.users.filter(u => u.id !== action.payload), appData: newAppData } };
+    }
+    case 'UPDATE_USER':
+        return { ...state, appState: { ...state.appState, users: state.appState.users.map(u => u.id === action.payload.id ? {...u, ...action.payload} : u) } };
+    case 'ADD_USAGE_LOG': {
+        const totalTokens = action.payload.promptTokens + action.payload.responseTokens;
+        return { ...state, appState: { ...state.appState, usageLogs: [action.payload, ...state.appState.usageLogs], users: state.appState.users.map(u => (u.id === action.payload.userId ? { ...u, tokensUsed: u.tokensUsed + totalTokens } : u)) } };
+    }
+    case 'UPDATE_CURRENT_USER_STORE': {
+      const { currentUserId, appData } = state.appState;
+      if (!currentUserId) return state;
+      const currentStore = appData[currentUserId] || defaultUserData;
+      const newStore = action.payload(currentStore);
+      return { ...state, appState: { ...state.appState, appData: { ...appData, [currentUserId]: newStore } } };
+    }
+    default:
+      return state;
+  }
 };
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [toasts, setToasts] = useState<ToastData[]>([]);
-  const [appState, setAppState] = useState<AppState>(defaultAppState);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [state, dispatch] = useReducer(appReducer, {
+    theme: 'dark',
+    statusBarMessage: null,
+    appState: { users: [], usageLogs: [], currentUserId: null, appData: {} },
+    isInitialized: false,
+  });
 
   useEffect(() => {
-    const initialState = loadInitialState();
-    setAppState(initialState);
-    setIsInitialized(true);
+    const loadedState = loadInitialState();
+    dispatch({ type: 'INITIALIZE_STATE', payload: loadedState });
+    dispatch({ type: 'SET_INITIALIZED' });
   }, []);
 
   useEffect(() => {
-    if (isInitialized) {
-      const stateToStore = {
-        ...appState,
-        version: 1
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToStore));
+    if (state.isInitialized) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state.appState, version: 1 }));
     }
-  }, [appState, isInitialized]);
+  }, [state.appState, state.isInitialized]);
 
-  const currentUser = useMemo(() => {
-    if (!appState.currentUserId) return null;
-    return appState.users.find(u => u.id === appState.currentUserId) || null;
-  }, [appState.currentUserId, appState.users]);
-
-  const toggleTheme = useCallback(() => setTheme(prev => (prev === 'light' ? 'dark' : 'light')), []);
-  const addToast = useCallback((toast: Omit<ToastData, 'id'>) => { setToasts(prev => [{ id: Math.random().toString(36).substring(2, 9), ...toast }, ...prev]); }, []);
-  const removeToast = useCallback((id: string) => { setToasts(prev => prev.filter(toast => toast.id !== id)); }, []);
+  const currentUser = useMemo(() => state.appState.users.find(u => u.id === state.appState.currentUserId) || null, [state.appState.currentUserId, state.appState.users]);
+  const currentUserData = useMemo(() => currentUser ? state.appState.appData[currentUser.id] || defaultUserData : null, [state.appState.appData, currentUser]);
   
+  const setStatusBarMessage = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+      const id = Math.random().toString(36).substring(2, 9);
+      dispatch({ type: 'SET_STATUS_MESSAGE', payload: { id, message, type } });
+
+      setTimeout(() => {
+          dispatch({ type: 'CLEAR_STATUS_MESSAGE', payload: { id } });
+      }, 5000);
+  }, []);
+  
+  const toggleTheme = useCallback(() => dispatch({ type: 'TOGGLE_THEME' }), []);
+
   const login = useCallback((email: string, password?: string): boolean => {
-    const userToLogin = appState.users.find(u => u.email === email);
+    const userToLogin = state.appState.users.find(u => u.email === email);
     if (userToLogin) {
         if (userToLogin.password === password) {
-             if (userToLogin.status === 'inactive') {
-                addToast({ type: 'error', message: 'This account is inactive.' }); return false;
-            }
+            if (userToLogin.status === 'inactive') { setStatusBarMessage('This account is inactive.', 'error'); return false; }
             const updatedUser = { ...userToLogin, lastLogin: new Date().toISOString() };
-            setAppState(prev => ({
-                ...prev,
-                currentUserId: updatedUser.id,
-                users: prev.users.map(u => u.id === updatedUser.id ? updatedUser : u)
-            }));
-            addToast({ type: 'success', message: `Welcome back, ${email}!` });
+            dispatch({ type: 'LOGIN', payload: updatedUser });
+            setStatusBarMessage(`Welcome back, ${email}!`, 'success');
             return true;
         } else {
-            addToast({ type: 'error', message: 'Invalid password. Please try again.' }); return false;
+            setStatusBarMessage('Invalid password. Please try again.', 'error'); return false;
         }
     } else {
-        addToast({ type: 'error', message: `User with email ${email} not found.` }); return false;
+        setStatusBarMessage(`User with email ${email} not found.`, 'error'); return false;
     }
-  }, [appState.users, addToast]);
+  }, [state.appState.users, setStatusBarMessage]);
 
   const logout = useCallback(() => {
-    addToast({ type: 'info', message: 'You have been logged out.' });
-    setAppState(prev => ({ ...prev, currentUserId: null }));
-  }, [addToast]);
-  
+    setStatusBarMessage('You have been logged out.', 'info');
+    dispatch({ type: 'LOGOUT' });
+  }, [setStatusBarMessage]);
+
   const addUser = useCallback((email: string, role: Role, tokenCap: number, password: string, status: 'active' | 'inactive') => {
-    if (appState.users.some(u => u.email === email)) {
-        addToast({ type: 'error', message: `User with email ${email} already exists.` }); return;
-    }
-    const newUserId = Math.max(0, ...appState.users.map(u => u.id)) + 1;
-    const newUser: User = {
-        id: newUserId, email, password, role, tokenCap, tokensUsed: 0,
-        lastLogin: new Date().toISOString(), status, canUseProModel: role === Role.Admin
-    };
-    setAppState(prev => ({
-        ...prev,
-        users: [...prev.users, newUser],
-        appData: { ...prev.appData, [newUserId]: { ...defaultUserData } }
-    }));
-    addToast({type: 'success', message: `User ${email} added successfully.`});
-  }, [appState.users, addToast]);
+    if (state.appState.users.some(u => u.email === email)) { setStatusBarMessage(`User with email ${email} already exists.`, 'error'); return; }
+    const newUser: User = { id: Math.max(0, ...state.appState.users.map(u => u.id)) + 1, email, password, role, tokenCap, tokensUsed: 0, lastLogin: new Date().toISOString(), status, canUseProModel: role === Role.Admin };
+    dispatch({ type: 'ADD_USER', payload: newUser });
+    setStatusBarMessage(`User ${email} added successfully.`, 'success');
+  }, [state.appState.users, setStatusBarMessage]);
 
   const deleteUser = useCallback((userId: number) => {
-    if (userId === currentUser?.id) { addToast({type: 'error', message: "Cannot delete the currently logged-in user."}); return; }
-    setAppState(prev => {
-        const newUsers = prev.users.filter(u => u.id !== userId);
-        const newAppData = { ...prev.appData };
-        delete newAppData[userId];
-        return { ...prev, users: newUsers, appData: newAppData };
-    });
-    addToast({type: 'info', message: `User with ID ${userId} deleted.`});
-  }, [currentUser, addToast]);
+    if (userId === currentUser?.id) { setStatusBarMessage("Cannot delete the currently logged-in user.", 'error'); return; }
+    dispatch({ type: 'DELETE_USER', payload: userId });
+    setStatusBarMessage(`User with ID ${userId} deleted.`, 'info');
+  }, [currentUser, setStatusBarMessage]);
 
   const updateUser = useCallback((updatedUser: User) => {
-    setAppState(prev => ({
-        ...prev,
-        users: prev.users.map(u => u.id === updatedUser.id ? {...u, ...updatedUser} : u)
-    }));
-    addToast({type: 'success', message: `User ${updatedUser.email} updated.`});
-  }, [addToast]);
-  
+    dispatch({ type: 'UPDATE_USER', payload: updatedUser });
+    setStatusBarMessage(`User ${updatedUser.email} updated.`, 'success');
+  }, [setStatusBarMessage]);
+
   const addUsageLog = useCallback((log: Omit<UsageLog, 'id' | 'timestamp' | 'promptTokens' | 'responseTokens'>): { promptTokens: number, responseTokens: number } => {
     const promptTokens = Math.floor(Math.random() * 3000) + 500;
     const responseTokens = Math.floor(Math.random() * 2000) + 300;
-    const totalTokens = promptTokens + responseTokens;
     const newLog: UsageLog = { ...log, id: `log_${Date.now()}`, timestamp: new Date().toISOString(), promptTokens, responseTokens };
-    
-    setAppState(prev => ({
-        ...prev,
-        usageLogs: [newLog, ...prev.usageLogs],
-        users: prev.users.map(u => (u.id === log.userId ? { ...u, tokensUsed: u.tokensUsed + totalTokens } : u))
-    }));
+    dispatch({ type: 'ADD_USAGE_LOG', payload: newLog });
     return { promptTokens, responseTokens };
   }, []);
 
-  const currentUserData = useMemo(() => currentUser ? appState.appData[currentUser.id] || defaultUserData : null, [appState.appData, currentUser]);
-  
-  const updateCurrentUserStore = useCallback((updater: (store: UserDataStore) => UserDataStore) => {
-    setAppState(prev => {
-        if (!prev.currentUserId) {
-            return prev;
-        }
-        const currentStore = prev.appData[prev.currentUserId] || defaultUserData;
-        const newStore = updater(currentStore);
-        return {
-            ...prev,
-            appData: {
-                ...prev.appData,
-                [prev.currentUserId]: newStore,
-            },
-        };
-    });
-  }, []);
+  const updateCurrentUserStore = useCallback((updater: (store: UserDataStore) => UserDataStore) => dispatch({ type: 'UPDATE_CURRENT_USER_STORE', payload: updater }), []);
 
   const createMetadataFolder = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, metadataFolders: [...store.metadataFolders, { id: Date.now().toString(), name, pdfFiles: [] }] })), [updateCurrentUserStore]);
   const deleteMetadataFolder = useCallback((folderId: string) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.filter(f => f.id !== folderId) })), [updateCurrentUserStore]);
@@ -217,39 +221,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateManuscript = useCallback((manuscriptId: string, updates: Partial<ManuscriptFile>) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => ({ ...f, manuscripts: f.manuscripts.map(m => m.id === manuscriptId ? { ...m, ...updates } : m) })) })), [updateCurrentUserStore]);
   const deleteManuscript = useCallback((folderId: string, manuscriptId: string) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, manuscripts: f.manuscripts.filter(m => m.id !== manuscriptId) } : f) })), [updateCurrentUserStore]);
 
-  const addGeneratedReport = useCallback((report: Omit<GeneratedReport, 'id' | 'timestamp'>) => {
-    const newReport: GeneratedReport = { ...report, id: `rep_${Date.now()}`, timestamp: new Date().toISOString() };
-    updateCurrentUserStore(store => ({ ...store, generatedReports: [newReport, ...(store.generatedReports || [])] }));
-  }, [updateCurrentUserStore]);
-
   const contextValue = useMemo(() => ({
-    theme, toggleTheme,
-    users: appState.users,
-    usageLogs: appState.usageLogs,
+    theme: state.theme,
+    toggleTheme,
+    users: state.appState.users,
+    usageLogs: state.appState.usageLogs,
     currentUser,
-    addUser, deleteUser, updateUser,
+    addUser,
+    deleteUser,
+    updateUser,
     addUsageLog,
-    toasts, addToast, removeToast,
-    login, logout,
+    statusBarMessage: state.statusBarMessage,
+    setStatusBarMessage,
+    login,
+    logout,
     currentUserData,
     createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs,
     updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset,
     createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile,
     deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder,
     updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript,
-    addGeneratedReport,
-  }), [
-    theme, appState, currentUser, currentUserData, toasts,
-    toggleTheme, addUser, deleteUser, updateUser, addUsageLog, addToast, removeToast, login, logout,
-    createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs,
-    updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset,
-    createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile,
-    deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder,
-    updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript,
-    addGeneratedReport
-  ]);
+  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript]);
 
-  if (!isInitialized) return null; // Or a loading spinner
+  if (!state.isInitialized) return null;
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 };

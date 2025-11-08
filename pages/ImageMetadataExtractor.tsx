@@ -17,7 +17,7 @@ interface ImageAsset {
 }
 
 export default function ImageMetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, addToast, addGeneratedReport } = useAppContext();
+    const { currentUser, addUsageLog, setStatusBarMessage } = useAppContext();
     const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
     const [status, setStatus] = useState<'idle' | 'processing' | 'done' | 'error'>('idle');
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -51,8 +51,8 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
     }, []);
 
     const handleProcess = async () => {
-        if (!currentUser) { addToast({ type: 'error', message: 'No user logged in.' }); return; }
-        if (currentUser.tokensUsed >= currentUser.tokenCap) { addToast({ type: 'error', message: 'Token cap reached - contact admin.' }); return; }
+        if (!currentUser) { setStatusBarMessage('No user logged in.', 'error'); return; }
+        if (currentUser.tokensUsed >= currentUser.tokenCap) { setStatusBarMessage('Token cap reached - contact admin.', 'error'); return; }
 
         setStatus('processing');
         const assetsToProcess = imageAssets.filter(a => a.status === 'pending');
@@ -79,7 +79,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
 
         addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor', modelName: selectedModel });
         setStatus('done');
-        addToast({ type: 'success', message: `Processing complete.` });
+        setStatusBarMessage(`Processing complete.`, 'success');
         if (imageAssets.length > 0 && !selectedAssetId) {
             setSelectedAssetId(imageAssets[0].id);
         }
@@ -117,19 +117,14 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             csvContent += row + "\r\n";
         });
 
-        addGeneratedReport({
-            fileName,
-            toolName: 'Image Metadata Extractor',
-            content: csvContent,
-            mimeType: 'text/csv;charset=utf-8,',
-        });
-
         const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
         link.setAttribute("download", fileName);
+        document.body.appendChild(link);
         link.click();
-        addToast({ type: 'info', message: "CSV export initiated and saved to history." })
+        document.body.removeChild(link);
+        setStatusBarMessage("CSV export initiated.", 'info')
     }
     
     const selectedAsset = imageAssets.find(a => a.id === selectedAssetId);

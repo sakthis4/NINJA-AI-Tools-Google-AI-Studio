@@ -6,9 +6,9 @@ import Tools from './pages/Tools';
 import UsageDashboard from './pages/UsageDashboard';
 import AdminPanel from './pages/AdminPanel';
 import { useAppContext } from './hooks/useAppContext';
-import ToastContainer from './components/ToastContainer';
 import LoginPage from './pages/LoginPage';
 import ApiIntegration from './pages/ApiIntegration';
+import StatusBar from './components/StatusBar';
 
 export type View = 'tools' | 'dashboard' | 'admin' | 'api';
 
@@ -35,7 +35,9 @@ export default function App() {
     return (
         <>
             <LoginPage />
-            <ToastContainer />
+            <footer className="fixed bottom-0 w-full p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-center flex justify-center items-center">
+                <StatusBar />
+            </footer>
         </>
     );
   }
@@ -63,11 +65,10 @@ export default function App() {
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
           {renderView()}
         </main>
-        <footer className="flex-shrink-0 p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-center">
-            <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>
+        <footer className="flex-shrink-0 p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-center flex justify-center items-center">
+            <StatusBar />
         </footer>
       </div>
-      <ToastContainer />
     </div>
   );
 }

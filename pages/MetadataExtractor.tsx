@@ -102,8 +102,8 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
-        // FIX: The promise resolver was being called without an argument for a Promise<void>.
-        // This resolves the promise correctly while adhering to stricter TypeScript types.
+        // FIX: Corrected promise resolver call. For a Promise<void>, the resolver should be called with no arguments to resolve the type error.
+        // FIX: The linter reports an error that the resolver expects 1 argument. Passing `undefined` explicitly to satisfy the linter while keeping the `Promise<void>` type.
         await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 0));
         const container = viewerRef.current;
         const style = window.getComputedStyle(container);
@@ -267,7 +267,7 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 
 // --- Main Dashboard Component ---
 export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, addToast, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, addGeneratedReport, createMetadataFolderAndAddPdfs } = useAppContext();
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, createMetadataFolderAndAddPdfs } = useAppContext();
     const folders = currentUserData?.metadataFolders || [];
 
     const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
@@ -288,8 +288,8 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
         });
         createMetadataFolderAndAddPdfs("Default Project", newPdfFiles);
         setProcessingQueue(prev => [...prev, ...newPdfFiles.map(m => m.id)]);
-        addToast({ type: 'info', message: `${newPdfFiles.length} file(s) added to a new project.` });
-    }, [createMetadataFolderAndAddPdfs, addToast]);
+        setStatusBarMessage(`${newPdfFiles.length} file(s) added to a new project.`, 'info');
+    }, [createMetadataFolderAndAddPdfs, setStatusBarMessage]);
 
     const { getRootProps: getInitialRootProps, getInputProps: getInitialInputProps, isDragActive: isInitialDragActive } = useDropzone({
         onDrop: handleInitialDrop,
@@ -313,8 +313,8 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
         });
         addPdfFilesToFolder(folderId, newPdfFiles);
         setProcessingQueue(prev => [...prev, ...newPdfFiles.map(m => m.id)]);
-        addToast({ type: 'info', message: `${newPdfFiles.length} file(s) added to queue.` });
-    }, [addPdfFilesToFolder, addToast]);
+        setStatusBarMessage(`${newPdfFiles.length} file(s) added to queue.`, 'info');
+    }, [addPdfFilesToFolder, setStatusBarMessage]);
 
     useEffect(() => {
         const processNextInQueue = async () => {
@@ -364,7 +364,8 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                             addLog(pdfId, `Found ${assetsOnPage.length} asset(s) on page ${pageNum}.`);
                             allAssets = [...allAssets, ...assetsOnPage.map(asset => ({...asset, id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, pageNumber: pageNum}))];
                         }
-                        if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
+                        // FIX: Corrected promise resolver call for consistency.
+                        if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
                     } catch (pageError) {
                         hasErrors = true;
                         const errorMessage = pageError instanceof Error ? pageError.message : "Unknown error during page processing.";
@@ -393,10 +394,10 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
         const fileObject = transientFiles.current.get(pdfId);
 
         if (!pdfFile || !asset || !asset.pageNumber || !asset.boundingBox || !fileObject) {
-            addToast({ type: 'error', message: "Could not find asset or required data to regenerate." }); return;
+            setStatusBarMessage("Could not find asset or required data to regenerate.", 'error'); return;
         }
 
-        addToast({ type: 'info', message: `Regenerating metadata for ${asset.assetId}...` });
+        setStatusBarMessage(`Regenerating metadata for ${asset.assetId}...`, 'info');
         try {
             const pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(await fileObject.arrayBuffer()) }).promise;
             const page = await pdfDoc.getPage(asset.pageNumber);
@@ -424,11 +425,11 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             
             updateMetadataAsset(pdfId, assetId, { ...newMetadata, assetId: newMetadata.assetId || asset.assetId });
 
-            addToast({ type: 'success', message: `Successfully regenerated metadata for ${asset.assetId}.` });
+            setStatusBarMessage(`Successfully regenerated metadata for ${asset.assetId}.`, 'success');
             addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor (Regen)', modelName: modelName });
         } catch (error) {
             console.error("Regeneration failed:", error);
-            addToast({ type: 'error', message: `Regeneration failed: ${error instanceof Error ? error.message : "Unknown"}` });
+            setStatusBarMessage(`Regeneration failed: ${error instanceof Error ? error.message : "Unknown"}`, 'error');
         }
     };
 
@@ -448,19 +449,14 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             csvContent += row + "\r\n";
         });
 
-        // Save to download history
-        addGeneratedReport({
-            fileName: fileName,
-            toolName: 'Metadata Extractor',
-            content: csvContent,
-            mimeType: 'text/csv;charset=utf-8,',
-        });
-        
         // Trigger download
         const link = document.createElement("a");
         link.setAttribute("href", 'data:text/csv;charset=utf-8,' + encodeURI(csvContent));
         link.setAttribute("download", fileName);
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        setStatusBarMessage(`Exported ${fileName}`, 'success');
     };
 
     if (view === 'editor' && currentPdf) {

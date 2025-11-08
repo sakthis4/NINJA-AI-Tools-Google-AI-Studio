@@ -40,7 +40,7 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
 };
 
 const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { currentUser, addUsageLog, addToast, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript, addGeneratedReport } = useAppContext();
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript } = useAppContext();
     const profiles = currentUserData?.complianceProfiles || [];
     const ruleFiles = currentUserData?.ruleFiles || {};
     const folders = currentUserData?.complianceFolders || [];
@@ -67,15 +67,15 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }, [folders, updateManuscript]);
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
-        addToast({type: 'info', message: `Processing ${acceptedFiles.length} rule file(s)...`});
+        setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
         const newRuleFileEntries = await Promise.all(acceptedFiles.map(async (file) => {
             const id = Math.random().toString(36).substring(2, 9);
             const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
             return [id, { id, name: file.name, textContent: await extractTextFromPdf(pdf) }];
         }));
         addRuleFilesToProfile(profileId, Object.fromEntries(newRuleFileEntries));
-        addToast({type: 'success', message: `Added ${acceptedFiles.length} rule file(s).`});
-    }, [addToast, addRuleFilesToProfile]);
+        setStatusBarMessage(`Added ${acceptedFiles.length} rule file(s).`, 'success');
+    }, [setStatusBarMessage, addRuleFilesToProfile]);
 
     const onManuscriptsDrop = useCallback((acceptedFiles: File[], folderId: string) => {
         const newManuscripts: ManuscriptFile[] = acceptedFiles.map(file => {
@@ -85,8 +85,8 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         });
         addManuscriptsToFolder(folderId, newManuscripts);
         setProcessingQueue(prev => [...prev, ...newManuscripts.map(m => m.id)]);
-        addToast({type: 'info', message: `${newManuscripts.length} manuscript(s) added to queue.`});
-    }, [addToast, addManuscriptsToFolder]);
+        setStatusBarMessage(`${newManuscripts.length} manuscript(s) added to queue.`, 'info');
+    }, [setStatusBarMessage, addManuscriptsToFolder]);
 
     useEffect(() => {
         const processNextInQueue = async () => {
@@ -163,21 +163,16 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
         
-        // Save to download history
-        addGeneratedReport({
-            fileName: fileName,
-            toolName: 'Compliance Checker',
-            content: content,
-            mimeType: 'text/plain',
-        });
-
         // Trigger download
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = fileName;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
+        setStatusBarMessage(`Downloading log for ${manuscript.name}`, 'info');
     };
 
     return (

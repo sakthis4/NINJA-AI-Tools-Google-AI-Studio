@@ -53,7 +53,7 @@ export interface ExtractedAsset {
     boundingBox?: BoundingBox;
 }
 
-export interface ToastData {
+export interface StatusBarMessage {
   id: string;
   type: 'success' | 'error' | 'info';
   message: string;
@@ -138,23 +138,12 @@ export interface MetadataProjectFolder {
   pdfFiles: PdfFile[];
 }
 
-// New type for storing generated reports
-export interface GeneratedReport {
-  id: string;
-  fileName: string;
-  toolName: string;
-  timestamp: string;
-  content: string; // The actual file content (e.g., CSV string, log text)
-  mimeType: string; // e.g., 'text/csv', 'text/plain'
-}
-
 // Central data store for each user
 export interface UserDataStore {
   metadataFolders: MetadataProjectFolder[];
   complianceFolders: ProjectFolder[];
   complianceProfiles: ComplianceProfile[];
   ruleFiles: Record<string, RuleFile>;
-  generatedReports: GeneratedReport[]; // Add storage for reports
 }
 
 // New types for unified, versioned state management
