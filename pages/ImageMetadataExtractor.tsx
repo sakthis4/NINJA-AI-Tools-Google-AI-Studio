@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset } from '../types';
@@ -73,7 +74,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'error', error: errorMessage } : a));
             }
-            if (index < assetsToProcess.length - 1) await new Promise(resolve => setTimeout(resolve, 1100));
+            if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
         }
 
         addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor', modelName: selectedModel });

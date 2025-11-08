@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DownloadIcon } from '../components/icons/Icons';
@@ -22,12 +22,12 @@ export default function UsageDashboard() {
 
   const userLogs = currentUser ? usageLogs.filter(log => log.userId === currentUser.id) : [];
 
-  const data = userLogs.map(log => ({
+  const data = useMemo(() => userLogs.map(log => ({
     name: new Date(log.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     tokens: log.promptTokens + log.responseTokens,
     promptTokens: log.promptTokens,
     responseTokens: log.responseTokens,
-  }));
+  })), [userLogs]);
   
   const tokensRemaining = currentUser ? currentUser.tokenCap - currentUser.tokensUsed : 0;
   const percentageUsed = currentUser ? (currentUser.tokensUsed / currentUser.tokenCap) * 100 : 0;

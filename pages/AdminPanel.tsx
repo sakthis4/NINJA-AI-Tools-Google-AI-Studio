@@ -4,7 +4,7 @@ import { User, Role } from '../types';
 import Modal from '../components/Modal';
 import { TrashIcon, PencilIcon } from '../components/icons/Icons';
 
-const UserForm = ({ user, onSave, onCancel }: { user?: User | null, onSave: (data: any) => void, onCancel: () => void }) => {
+const UserForm: React.FC<{ user?: User | null, onSave: (data: any) => void, onCancel: () => void }> = ({ user, onSave, onCancel }) => {
     const [email, setEmail] = useState(user?.email || '');
     const [role, setRole] = useState(user?.role || Role.User);
     const [tokenCap, setTokenCap] = useState(user?.tokenCap || 50000);

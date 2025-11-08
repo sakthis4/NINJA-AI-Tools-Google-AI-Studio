@@ -24,7 +24,14 @@ const sortAssets = (assets: ExtractedAsset[]): ExtractedAsset[] => {
     });
 };
 
-const LazyPdfPage = ({ pdfDoc, pageNum, scale, viewerRef }: { pdfDoc: pdfjsLib.PDFDocumentProxy; pageNum: number; scale: number; viewerRef: React.RefObject<HTMLDivElement> }) => {
+interface LazyPdfPageProps {
+    pdfDoc: pdfjsLib.PDFDocumentProxy;
+    pageNum: number;
+    scale: number;
+    viewerRef: React.RefObject<HTMLDivElement>;
+}
+
+const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewerRef }) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [isIntersecting, setIsIntersecting] = useState(false);
@@ -49,8 +56,9 @@ const LazyPdfPage = ({ pdfDoc, pageNum, scale, viewerRef }: { pdfDoc: pdfjsLib.P
             if (!context) return;
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-            // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
-            page.render({ canvasContext: context, viewport }).promise.then(() => {
+            // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
+            // Casting to 'any' to bypass the erroneous type check for the render parameters.
+            ((page.render as any)({ canvasContext: context, viewport })).promise.then(() => {
                 if (!isCancelled) setIsRendered(true);
             });
         });
@@ -70,18 +78,20 @@ const LazyPdfPage = ({ pdfDoc, pageNum, scale, viewerRef }: { pdfDoc: pdfjsLib.P
 };
 
 // --- Editor View Component ---
-const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model, setModel, canUsePro }: {
-    folder: MetadataProjectFolder,
-    pdfFile: PdfFile,
-    onBack: () => void,
-    onAssetUpdate: (assetId: string, field: keyof ExtractedAsset, value: any) => void,
-    onAssetDelete: (assetId: string) => void,
-    onRegenerate: (assetId: string, modelName: string) => void,
-    onExport: (pdfFile: PdfFile) => void,
-    model: string,
-    setModel: (m: string) => void,
-    canUsePro: boolean,
-}) => {
+interface EditorViewProps {
+    folder: MetadataProjectFolder;
+    pdfFile: PdfFile;
+    onBack: () => void;
+    onAssetUpdate: (assetId: string, field: keyof ExtractedAsset, value: any) => void;
+    onAssetDelete: (assetId: string) => void;
+    onRegenerate: (assetId: string, modelName: string) => void;
+    onExport: (pdfFile: PdfFile) => void;
+    model: string;
+    setModel: (m: string) => void;
+    canUsePro: boolean;
+}
+
+const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model, setModel, canUsePro }) => {
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
     const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pdfScale, setPdfScale] = useState(0);
@@ -92,7 +102,9 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
 
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
-        await new Promise(resolve => setTimeout(resolve, 0));
+        // FIX: The promise resolver was being called without an argument for a Promise<void>.
+        // This resolves the promise correctly while adhering to stricter TypeScript types.
+        await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 0));
         const container = viewerRef.current;
         const style = window.getComputedStyle(container);
         const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
@@ -111,8 +123,7 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
             dimensions.push({ width: vp.width, height: vp.height });
         }
         setPageDimensions(dimensions);
-    // Fix: Add state setters to dependency array to satisfy strict linting/type rules.
-    }, [setPdfScale, setPageDimensions]);
+    }, []);
     
     useEffect(() => {
         if (pdfFile.file) {
@@ -256,7 +267,7 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
 
 // --- Main Dashboard Component ---
 export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, addToast, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, addGeneratedReport } = useAppContext();
+    const { currentUser, addUsageLog, addToast, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, addGeneratedReport, createMetadataFolderAndAddPdfs } = useAppContext();
     const folders = currentUserData?.metadataFolders || [];
 
     const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
@@ -269,6 +280,22 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
     const [logModalState, setLogModalState] = useState({ isOpen: false, logs: [] as string[], fileName: '' });
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
 
+    const handleInitialDrop = useCallback((acceptedFiles: File[]) => {
+        const newPdfFiles: PdfFile[] = acceptedFiles.map(file => {
+            const id = `${performance.now()}-${file.name}`;
+            transientFiles.current.set(id, file);
+            return { id, name: file.name, status: 'queued', logs: [], progress: 0 };
+        });
+        createMetadataFolderAndAddPdfs("Default Project", newPdfFiles);
+        setProcessingQueue(prev => [...prev, ...newPdfFiles.map(m => m.id)]);
+        addToast({ type: 'info', message: `${newPdfFiles.length} file(s) added to a new project.` });
+    }, [createMetadataFolderAndAddPdfs, addToast]);
+
+    const { getRootProps: getInitialRootProps, getInputProps: getInitialInputProps, isDragActive: isInitialDragActive } = useDropzone({
+        onDrop: handleInitialDrop,
+        accept: { 'application/pdf': ['.pdf'] }
+    });
+
     const addLog = useCallback((pdfId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
         const formattedMessage = `[${timestamp}] ${message}`;
@@ -277,7 +304,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             updatePdfFile(pdfId, { logs: [...(pdf.logs || []), formattedMessage] });
         }
     }, [folders, updatePdfFile]);
-
+    
     const onDrop = useCallback((acceptedFiles: File[], folderId: string) => {
         const newPdfFiles: PdfFile[] = acceptedFiles.map(file => {
             const id = `${performance.now()}-${file.name}`;
@@ -327,8 +354,9 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                         canvas.width = viewport.width;
                         const context = canvas.getContext('2d');
                         if (!context) throw new Error("Canvas 2D context not available");
-                        // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
-                        await page.render({ canvasContext: context, viewport }).promise;
+                        // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
+                        // Casting to 'any' to bypass the erroneous type check for the render parameters.
+                        await (page.render as any)({ canvasContext: context, viewport }).promise;
                         const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
                         
                         const assetsOnPage = await extractAssetsFromPage(pageImageBase64, selectedModel);
@@ -336,7 +364,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                             addLog(pdfId, `Found ${assetsOnPage.length} asset(s) on page ${pageNum}.`);
                             allAssets = [...allAssets, ...assetsOnPage.map(asset => ({...asset, id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, pageNumber: pageNum}))];
                         }
-                        if (pageNum < pdf.numPages) await new Promise(resolve => setTimeout(resolve, 1100));
+                        if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
                     } catch (pageError) {
                         hasErrors = true;
                         const errorMessage = pageError instanceof Error ? pageError.message : "Unknown error during page processing.";
@@ -378,8 +406,9 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             canvas.width = viewport.width; canvas.height = viewport.height;
             const context = canvas.getContext('2d');
             if (!context) throw new Error("Could not get canvas context");
-            // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
-            await page.render({ canvasContext: context, viewport }).promise;
+            // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
+            // Casting to 'any' to bypass the erroneous type check for the render parameters.
+            await (page.render as any)({ canvasContext: context, viewport }).promise;
 
             const { x, y, width, height } = asset.boundingBox;
             const croppedCanvas = document.createElement('canvas');
@@ -443,7 +472,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                 folder={folder} pdfFile={pdfFile} onBack={() => setView('dashboard')}
                 onAssetUpdate={(assetId, field, value) => updateMetadataAsset(pdfFile.id, assetId, { [field]: value })}
                 onAssetDelete={(assetId) => deleteMetadataAsset(pdfFile.id, assetId)}
-                // Fix: Correctly pass arguments to handleRegenerateAsset by using a lambda function.
                 onRegenerate={(assetId, modelName) => handleRegenerateAsset(pdfFile.id, assetId, modelName)} onExport={handleExport}
                 model={selectedModel} setModel={setSelectedModel} canUsePro={currentUser?.canUseProModel || false}
             />;
@@ -471,14 +499,17 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                 </div>
             </div>
             <div className="flex-grow overflow-y-auto space-y-6">
-                {folders.length === 0 && (
-                    <div className="text-center py-16 text-gray-500">
-                        <FolderIcon className="h-16 w-16 mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold">No folders yet</h3>
-                        <p>Click "New Folder" to get started.</p>
+                {folders.length === 0 ? (
+                    <div {...getInitialRootProps()} className={`h-full flex flex-col items-center justify-center text-center p-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isInitialDragActive ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-primary-400'}`}>
+                        <input {...getInitialInputProps()} />
+                        <UploadIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">Start your first project</h3>
+                        <p className="text-gray-500">Drag & drop a PDF here, or click to select one.</p>
+                        <p className="text-xs text-gray-500 mt-2">A "Default Project" folder will be created for you automatically.</p>
                     </div>
+                ) : (
+                    folders.map(folder => <FolderCard key={folder.id} folder={folder} onDrop={onDrop} onView={(pdfId) => { setCurrentPdf({ folderId: folder.id, pdfId }); setView('editor');}} onDeletePdf={(pdfId) => deletePdfFile(folder.id, pdfId)} onDeleteFolder={() => deleteMetadataFolder(folder.id)} onShowLogs={(pdf) => setLogModalState({isOpen: true, logs: pdf.logs || [], fileName: pdf.name})} />)
                 )}
-                {folders.map(folder => <FolderCard key={folder.id} folder={folder} onDrop={onDrop} onView={(pdfId) => { setCurrentPdf({ folderId: folder.id, pdfId }); setView('editor');}} onDeletePdf={(pdfId) => deletePdfFile(folder.id, pdfId)} onDeleteFolder={() => deleteMetadataFolder(folder.id)} onShowLogs={(pdf) => setLogModalState({isOpen: true, logs: pdf.logs || [], fileName: pdf.name})} />)}
             </div>
              <Modal isOpen={createFolderModalOpen} onClose={() => setCreateFolderModalOpen(false)} title="Create New Folder">
                 <form onSubmit={(e) => { e.preventDefault(); if (newFolderName.trim()) createMetadataFolder(newFolderName.trim()); setNewFolderName(''); setCreateFolderModalOpen(false); }} className="space-y-4">
@@ -498,7 +529,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
     );
 }
 
-const FolderCard = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onShowLogs }: { folder: MetadataProjectFolder, onDrop: (files: File[], folderId: string) => void, onView: (pdfId: string) => void, onDeletePdf: (pdfId: string) => void, onDeleteFolder: () => void, onShowLogs: (pdf: PdfFile) => void }) => {
+const FolderCard: React.FC<{ folder: MetadataProjectFolder, onDrop: (files: File[], folderId: string) => void, onView: (pdfId: string) => void, onDeletePdf: (pdfId: string) => void, onDeleteFolder: () => void, onShowLogs: (pdf: PdfFile) => void }> = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onShowLogs }) => {
     const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop: (files) => onDrop(files, folder.id), accept: { 'application/pdf': ['.pdf'] }, noClick: true });
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
@@ -521,7 +552,7 @@ const FolderCard = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onSho
     );
 };
 
-const PdfFileRow = ({ pdf, onView, onDelete, onShowLogs }: { pdf: PdfFile, onView: (pdfId: string) => void, onDelete: (pdfId: string) => void, onShowLogs: (pdf: PdfFile) => void }) => {
+const PdfFileRow: React.FC<{ pdf: PdfFile, onView: (pdfId: string) => void, onDelete: (pdfId: string) => void, onShowLogs: (pdf: PdfFile) => void }> = ({ pdf, onView, onDelete, onShowLogs }) => {
     const statusStyles = { queued: 'text-gray-500', processing: 'text-blue-500', completed: 'text-green-500', error: 'text-red-500' };
     return (
          <div className="bg-gray-100 dark:bg-gray-900/50 p-2 rounded-md">

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -138,7 +139,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             allFindings.push(...reportForChunk);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
-                    if (index < textChunks.length - 1) await new Promise(resolve => setTimeout(resolve, 1500));
+                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
                 addComplianceLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);
@@ -148,7 +149,8 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
                 updateManuscript(manuscriptId, { status: 'error' });
             } finally {
-                setIsProcessing(false); setProcessingQueue(q => q.slice(1));
+                setIsProcessing(false);
+                setProcessingQueue(q => q.slice(1));
             }
         };
         processNextInQueue();

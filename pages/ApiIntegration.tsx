@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const CodeBlock = ({ code, language }: { code: string; language: string }) => {
+const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = () => {
@@ -24,7 +24,7 @@ const CodeBlock = ({ code, language }: { code: string; language: string }) => {
     );
 };
 
-const ApiSection = ({ title, description, model, curlExample, jsExample, schema }: { title: string, description: string, model: string, curlExample: string, jsExample: string, schema: string }) => (
+const ApiSection: React.FC<{ title: string, description: string, model: string, curlExample: string, jsExample: string, schema: string }> = ({ title, description, model, curlExample, jsExample, schema }) => (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{description}</p>

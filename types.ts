@@ -156,3 +156,15 @@ export interface UserDataStore {
   ruleFiles: Record<string, RuleFile>;
   generatedReports: GeneratedReport[]; // Add storage for reports
 }
+
+// New types for unified, versioned state management
+export interface AppState {
+    users: User[];
+    usageLogs: UsageLog[];
+    currentUserId: number | null;
+    appData: Record<number, UserDataStore>; // User-specific data, keyed by userId
+}
+
+export interface StoredAppState extends AppState {
+    version: number;
+}
