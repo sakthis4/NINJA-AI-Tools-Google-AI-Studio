@@ -25,7 +25,6 @@ const defaultUserDataStore: UserDataStore = {
     complianceFolders: [],
     complianceProfiles: [],
     ruleFiles: {},
-    // FIX: The 'generatedReports' property does not exist on the UserDataStore type.
 };
 
 // This function migrates data from the old multi-key format to the new single-key, versioned format.

@@ -24,19 +24,22 @@ const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, languag
     );
 };
 
-const ApiSection: React.FC<{ title: string, description: string, model: string, curlExample: string, jsExample: string, schema: string }> = ({ title, description, model, curlExample, jsExample, schema }) => (
+const ApiSection: React.FC<{ title: string, useCase: string, instructions: string[], model: string, nodeExample: string, schema: string }> = ({ title, useCase, instructions, model, nodeExample, schema }) => (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{description}</p>
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-300 italic mb-4">{useCase}</p>
+        
+        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Instructions</h4>
+        <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-4">
+            {instructions.map((step, i) => <li key={i}>{step}</li>)}
+        </ol>
+
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
             <strong>Recommended Model:</strong> <code className="text-xs bg-gray-200 dark:bg-gray-700 p-1 rounded">{model}</code>
         </p>
 
-        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">cURL Request</h4>
-        <CodeBlock code={curlExample} language="bash" />
-
-        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">JavaScript (fetch)</h4>
-        <CodeBlock code={jsExample} language="javascript" />
+        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Node.js Example (@google/genai)</h4>
+        <CodeBlock code={nodeExample} language="javascript" />
 
         <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Expected JSON Response Schema</h4>
         <CodeBlock code={schema} language="json" />
@@ -44,51 +47,40 @@ const ApiSection: React.FC<{ title: string, description: string, model: string, 
 );
 
 export default function ApiIntegration() {
-    const extractorCurl = `curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -d '{
-      "contents": {
-        "parts": [
-          { "inlineData": { "mimeType": "image/jpeg", "data": "BASE64_ENCODED_IMAGE_STRING" } },
-          { "text": "Analyze this page image. Find all assets (figures, tables, etc.) and extract metadata according to the schema." }
-        ]
-      },
-      "config": {
-        "responseMimeType": "application/json",
-        "responseSchema": {
-          "type": "ARRAY",
-          "items": {
-            "type": "OBJECT",
-            "properties": {
-              "assetId": {"type": "STRING"},
-              "assetType": {"type": "STRING", "enum": ["Figure", "Table", "Image", "Equation", "Map", "Graph"]},
-              "altText": {"type": "STRING"},
-              "keywords": {"type": "ARRAY", "items": {"type": "STRING"}},
-              "taxonomy": {"type": "STRING"}
-            }
-          }
-        }
-      }
-    }'`;
+    const extractorNodeJs = `import { GoogleGenAI, Type } from '@google/genai';
+import fs from 'fs';
 
-    const extractorJs = `const apiKey = 'YOUR_API_KEY';
-const url = \`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\${apiKey}\`;
+// Use your API key from an environment variable
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const body = {
-  // ... (see cURL example for the full body structure)
-};
+// Schema for the expected response
+const PAGE_METADATA_SCHEMA = { /* ... see schema below ... */ };
 
-async function extractMetadata() {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const data = await response.json();
-  console.log(data.text);
+async function extractMetadataFromPage(imagePath) {
+  try {
+    const imageBase64 = fs.readFileSync(imagePath, { encoding: 'base64' });
+    const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
+    const textPart = { text: "Analyze this page image. Find all assets and extract their metadata according to the schema." };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [imagePart, textPart] },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: PAGE_METADATA_SCHEMA,
+        },
+    });
+
+    const parsedData = JSON.parse(response.text);
+    console.log(JSON.stringify(parsedData, null, 2));
+    return parsedData;
+
+  } catch (error) {
+    console.error("API call failed:", error);
+  }
 }
 
-extractMetadata();`;
+extractMetadataFromPage('path/to/your/page-image.jpg');`;
     
     const extractorSchema = `{
   "type": "ARRAY",
@@ -96,54 +88,63 @@ extractMetadata();`;
     "type": "OBJECT",
     "properties": {
       "assetId": { "type": "STRING" },
-      "assetType": { "type": "STRING" },
+      "assetType": { "type": "STRING", "enum": ["Figure", "Table", "Image", "Equation", "Map", "Graph"] },
+      "preview": { "type": "STRING" },
       "altText": { "type": "STRING" },
-      "keywords": { "type": "ARRAY" },
-      "taxonomy": { "type": "STRING" }
+      "keywords": { "type": "ARRAY", "items": { "type": "STRING" } },
+      "taxonomy": { "type": "STRING" },
+      "boundingBox": {
+        "type": "OBJECT",
+        "properties": {
+          "x": { "type": "NUMBER" },
+          "y": { "type": "NUMBER" },
+          "width": { "type": "NUMBER" },
+          "height": { "type": "NUMBER" }
+        }
+      }
     },
     "required": ["assetId", "assetType", "altText", "keywords", "taxonomy"]
   }
 }`;
 
-    const complianceCurl = `curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -d '{
-      "contents": "You are a compliance editor. Compare the MANUSCRIPT CHUNK against the RULES DOCUMENT...\\n\\nMANUSCRIPT CHUNK:\\n[Page 1] The quick brown fox...\\n\\nRULES DOCUMENT TEXT:\\nAll titles must be in sentence case...",
-      "config": {
-        "responseMimeType": "application/json",
-        "responseSchema": {
-          "type": "ARRAY",
-          "items": {
-            "type": "OBJECT",
-            "properties": {
-              "checkCategory": {"type": "STRING"},
-              "status": {"type": "STRING", "enum": ["pass", "fail", "warn"]},
-              "summary": {"type": "STRING"},
-              "recommendation": {"type": "STRING"}
-            }
-          }
-        }
-      }
-    }'`;
+    const complianceNodeJs = `import { GoogleGenAI, Type } from '@google/genai';
 
-    const complianceJs = `const apiKey = 'YOUR_API_KEY';
-const url = \`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\${apiKey}\`;
+// Use your API key from an environment variable
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const body = {
-  // ... (see cURL example for the full body structure)
-};
+// Schema for the expected response
+const COMPLIANCE_SCHEMA = { /* ... see schema below ... */ };
 
-async function checkCompliance() {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const data = await response.json();
-  console.log(data.text);
+async function checkCompliance(manuscriptText, rulesText) {
+  const prompt = \`
+    You are a meticulous compliance editor. Compare the 'MANUSCRIPT CHUNK' against the 'RULES DOCUMENT'.
+    For every rule you can verify based *only* on the chunk, provide a finding according to the JSON schema.
+    MANUSCRIPT CHUNK: \${manuscriptText}
+    RULES DOCUMENT TEXT: \${rulesText}
+  \`;
+
+  try {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: COMPLIANCE_SCHEMA,
+        },
+    });
+
+    const parsedData = JSON.parse(response.text);
+    console.log(JSON.stringify(parsedData, null, 2));
+    return parsedData;
+
+  } catch (error) {
+    console.error("API call failed:", error);
+  }
 }
 
-checkCompliance();`;
+const manuscriptChunk = "[Page 1] The title of this paper is not in sentence case...";
+const rulesDocument = "Rule 1.1: All titles must be in sentence case.";
+checkCompliance(manuscriptChunk, rulesDocument);`;
 
     const complianceSchema = `{
   "type": "ARRAY",
@@ -151,7 +152,7 @@ checkCompliance();`;
     "type": "OBJECT",
     "properties": {
       "checkCategory": { "type": "STRING" },
-      "status": { "type": "STRING" },
+      "status": { "type": "STRING", "enum": ["pass", "fail", "warn"] },
       "summary": { "type": "STRING" },
       "manuscriptQuote": { "type": "STRING" },
       "manuscriptPage": { "type": "NUMBER" },
@@ -168,26 +169,58 @@ checkCompliance();`;
         <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-white">API Integration Guide</h2>
             <p className="mb-6 text-gray-600 dark:text-gray-400">
-                Integrate the core functionalities of this application into your own services by calling the Google Gemini API directly.
+                Integrate the core functionalities of this application directly into your own services, such as a Content Management System (CMS) or an automated publishing pipeline.
             </p>
 
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">1. Authentication</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                    All API requests must be authenticated with a Google Gemini API key. Obtain your key from Google AI Studio.
+                    Your API key should be treated as a secret and stored securely in an environment variable on your server.
+                    <strong className="text-red-500"> Never expose your API key in client-side code.</strong>
+                </p>
+                <CodeBlock code={`// Example for Node.js
+const { GoogleGenAI } = require('@google/genai');
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });`} language="javascript" />
+            </div>
+
             <ApiSection
-                title="Metadata Extraction from PDF/Image"
-                description="This endpoint analyzes a single page (as an image) from a document to extract metadata for all assets it contains. The model returns a structured JSON object based on the provided schema."
+                title="2. Endpoint: Metadata Extraction"
+                useCase="Use Case: Automatically enrich assets with metadata upon upload to your Digital Asset Management (DAM) system."
+                instructions={[
+                    "Convert each page of your source PDF into a JPEG image.",
+                    "For each page image, convert it to a base64-encoded string.",
+                    "Send the base64 string and the text prompt to the Gemini API as shown in the example.",
+                    "Parse the JSON response, which will be an array of asset objects found on that page.",
+                    "Store the extracted metadata alongside your asset in your system."
+                ]}
                 model="gemini-2.5-flash"
-                curlExample={extractorCurl}
-                jsExample={extractorJs}
+                nodeExample={extractorNodeJs}
                 schema={extractorSchema}
             />
 
             <ApiSection
-                title="Compliance Checker"
-                description="This endpoint compares a chunk of manuscript text against a set of rules to find compliance issues. For best results with large documents, send the manuscript text in chunks (e.g., 20-30 pages at a time). For more complex rule sets, consider using gemini-2.5-pro."
-                model="gemini-2.5-flash"
-                curlExample={complianceCurl}
-                jsExample={complianceJs}
+                title="3. Endpoint: Compliance Checking"
+                useCase="Use Case: Integrate an automated pre-flight check into your manuscript submission portal to provide authors with instant feedback."
+                instructions={[
+                    "Extract the full text content from the author's manuscript PDF.",
+                    "Concatenate the text content of all your rule documents into a single string.",
+                    "For large manuscripts, split the text into smaller chunks (e.g., 20-25 pages of text per chunk) to ensure reliable processing.",
+                    "For each chunk, construct a prompt containing both the manuscript chunk and the full rules text, then send it to the Gemini API.",
+                    "Combine the JSON array responses from all chunks to build the complete compliance report."
+                ]}
+                model="gemini-2.5-pro"
+                nodeExample={complianceNodeJs}
                 schema={complianceSchema}
             />
+
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">4. Best Practices: Rate Limiting</h3>
+                 <p className="text-sm text-gray-600 dark:text-gray-400">
+                    The Gemini API has rate limits to ensure fair usage. If you plan to process many documents in batches, it's crucial to handle potential rate limit errors (HTTP 429).
+                    Implement a retry mechanism with exponential backoff in your server-side code to gracefully handle these situations and ensure your processing jobs complete successfully. The application's internal `geminiService.ts` contains an example of such a retry mechanism.
+                </p>
+            </div>
         </div>
     );
 }

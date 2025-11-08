@@ -139,7 +139,8 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             allFindings.push(...reportForChunk);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
-                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+                    // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
+                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1500));
                 }
 
                 addComplianceLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);

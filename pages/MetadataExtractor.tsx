@@ -102,8 +102,7 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
-        // FIX: Corrected promise resolver call. For a Promise<void>, the resolver should be called with no arguments to resolve the type error.
-        // FIX: The linter reports an error that the resolver expects 1 argument. Passing `undefined` explicitly to satisfy the linter while keeping the `Promise<void>` type.
+        // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
         await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 0));
         const container = viewerRef.current;
         const style = window.getComputedStyle(container);
@@ -364,8 +363,8 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                             addLog(pdfId, `Found ${assetsOnPage.length} asset(s) on page ${pageNum}.`);
                             allAssets = [...allAssets, ...assetsOnPage.map(asset => ({...asset, id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, pageNumber: pageNum}))];
                         }
-                        // FIX: Corrected promise resolver call for consistency.
-                        if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
+                        // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
+                        if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
                     } catch (pageError) {
                         hasErrors = true;
                         const errorMessage = pageError instanceof Error ? pageError.message : "Unknown error during page processing.";
