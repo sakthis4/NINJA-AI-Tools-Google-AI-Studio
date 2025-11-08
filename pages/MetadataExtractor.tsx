@@ -43,12 +43,13 @@ const LazyPdfPage = ({ pdfDoc, pageNum, scale, viewerRef }: { pdfDoc: pdfjsLib.P
         let isCancelled = false;
         pdfDoc.getPage(pageNum).then(page => {
             if (isCancelled || !canvasRef.current) return;
-            const viewport = page.getViewport({ scale });
             const canvas = canvasRef.current;
+            const viewport = page.getViewport({ scale });
             const context = canvas.getContext('2d');
             if (!context) return;
             canvas.height = viewport.height;
             canvas.width = viewport.width;
+            // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
             page.render({ canvasContext: context, viewport }).promise.then(() => {
                 if (!isCancelled) setIsRendered(true);
             });
@@ -69,14 +70,17 @@ const LazyPdfPage = ({ pdfDoc, pageNum, scale, viewerRef }: { pdfDoc: pdfjsLib.P
 };
 
 // --- Editor View Component ---
-const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport }: {
+const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model, setModel, canUsePro }: {
     folder: MetadataProjectFolder,
     pdfFile: PdfFile,
     onBack: () => void,
     onAssetUpdate: (assetId: string, field: keyof ExtractedAsset, value: any) => void,
     onAssetDelete: (assetId: string) => void,
-    onRegenerate: (assetId: string) => void,
+    onRegenerate: (assetId: string, modelName: string) => void,
     onExport: (pdfFile: PdfFile) => void,
+    model: string,
+    setModel: (m: string) => void,
+    canUsePro: boolean,
 }) => {
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
     const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -107,13 +111,13 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
             dimensions.push({ width: vp.width, height: vp.height });
         }
         setPageDimensions(dimensions);
-    }, []);
+    // Fix: Add state setters to dependency array to satisfy strict linting/type rules.
+    }, [setPdfScale, setPageDimensions]);
     
     useEffect(() => {
         if (pdfFile.file) {
             const loadPdf = async () => {
                 const fileBuffer = await pdfFile.file!.arrayBuffer();
-                // FIX: Pass the file buffer as a Uint8Array to pdfjsLib.getDocument.
                 const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(fileBuffer) });
                 const pdf = await loadingTask.promise;
                 setPdfDoc(pdf);
@@ -145,14 +149,25 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
 
     return (
         <div className="h-full flex flex-col">
-            <div className="flex items-center mb-4 flex-shrink-0">
-                <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3">
-                    <ChevronLeftIcon className="h-5 w-5" />
-                </button>
-                <div>
-                    <h2 className="text-xl font-bold text-gray-800 dark:text-white truncate" title={pdfFile.name}>{pdfFile.name}</h2>
-                    <p className="text-sm text-gray-500">Folder: {folder.name}</p>
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                 <div className="flex items-center">
+                    <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3">
+                        <ChevronLeftIcon className="h-5 w-5" />
+                    </button>
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800 dark:text-white truncate" title={pdfFile.name}>{pdfFile.name}</h2>
+                        <p className="text-sm text-gray-500">Folder: {folder.name}</p>
+                    </div>
                 </div>
+                 {canUsePro && (
+                     <div className="flex items-center gap-2">
+                         <label className="text-sm font-medium">Model:</label>
+                         <select value={model} onChange={e => setModel(e.target.value)} className="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md p-1 focus:ring-primary-500 focus:border-primary-500">
+                             <option value="gemini-2.5-flash">Flash</option>
+                             <option value="gemini-2.5-pro">Pro</option>
+                         </select>
+                     </div>
+                 )}
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full overflow-hidden">
                 {/* PDF Viewer */}
@@ -198,7 +213,7 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
                                              <div>
                                                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
                                                     <span>Alt Text</span>
-                                                    <button onClick={() => onRegenerate(asset.id)} className="p-1 text-xs text-primary-600 dark:text-primary-400 hover:underline inline-flex items-center">
+                                                    <button onClick={() => onRegenerate(asset.id, model)} className="p-1 text-xs text-primary-600 dark:text-primary-400 hover:underline inline-flex items-center">
                                                         <SparklesIcon className="h-3 w-3 mr-1"/>Regenerate
                                                     </button>
                                                 </label>
@@ -241,124 +256,68 @@ const EditorView = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onR
 
 // --- Main Dashboard Component ---
 export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, addToast } = useAppContext();
+    const { currentUser, addUsageLog, addToast, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, addGeneratedReport } = useAppContext();
+    const folders = currentUserData?.metadataFolders || [];
 
     const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
     const [currentPdf, setCurrentPdf] = useState<{ folderId: string, pdfId: string } | null>(null);
-
-    const [folders, setFolders] = useState<MetadataProjectFolder[]>(() => {
-        try {
-            const saved = localStorage.getItem('metadata_folders');
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            return [];
-        }
-    });
     const transientFiles = useRef<Map<string, File>>(new Map());
-    
     const [processingQueue, setProcessingQueue] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
-    
     const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
-    
     const [logModalState, setLogModalState] = useState({ isOpen: false, logs: [] as string[], fileName: '' });
+    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
 
-    // Persist state to localStorage, excluding transient file objects
-    useEffect(() => {
-        const foldersToSave = folders.map(folder => ({
-            ...folder,
-            pdfFiles: folder.pdfFiles.map(({ file, ...rest }) => rest),
-        }));
-        localStorage.setItem('metadata_folders', JSON.stringify(foldersToSave));
-    }, [folders]);
-
-    const addLog = (pdfId: string, message: string) => {
+    const addLog = useCallback((pdfId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
         const formattedMessage = `[${timestamp}] ${message}`;
-        setFolders(prev => prev.map(f => ({
-            ...f,
-            pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, logs: [...(p.logs || []), formattedMessage] } : p)
-        })));
-        setLogModalState(prev => {
-            const targetPdf = folders.flatMap(f => f.pdfFiles).find(p => p.id === pdfId);
-            if(prev.isOpen && prev.fileName === targetPdf?.name) {
-                return { ...prev, logs: [...(targetPdf?.logs || []), formattedMessage] };
-            }
-            return prev;
-        });
-    };
+        const pdf = folders.flatMap(f => f.pdfFiles).find(p => p.id === pdfId);
+        if (pdf) {
+            updatePdfFile(pdfId, { logs: [...(pdf.logs || []), formattedMessage] });
+        }
+    }, [folders, updatePdfFile]);
 
     const onDrop = useCallback((acceptedFiles: File[], folderId: string) => {
         const newPdfFiles: PdfFile[] = acceptedFiles.map(file => {
-            const id = `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`;
-            transientFiles.current.set(id, file); // Store file object in ref
+            const id = `${performance.now()}-${file.name}`;
+            transientFiles.current.set(id, file);
             return { id, name: file.name, status: 'queued', logs: [], progress: 0 };
         });
-        setFolders(prev => prev.map(f => f.id === folderId ? { ...f, pdfFiles: [...f.pdfFiles, ...newPdfFiles] } : f));
+        addPdfFilesToFolder(folderId, newPdfFiles);
         setProcessingQueue(prev => [...prev, ...newPdfFiles.map(m => m.id)]);
         addToast({ type: 'info', message: `${newPdfFiles.length} file(s) added to queue.` });
-    }, [addToast]);
+    }, [addPdfFilesToFolder, addToast]);
 
-    const handleCreateFolder = () => {
-        if (!newFolderName.trim()) return;
-        setFolders(prev => [...prev, { id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, name: newFolderName, pdfFiles: [] }]);
-        setNewFolderName('');
-        setCreateFolderModalOpen(false);
-    };
-
-    const handleDeleteFolder = (folderId: string) => {
-        setFolders(prev => prev.filter(f => f.id !== folderId));
-    };
-    
-    // --- Queue Processing Logic ---
-     useEffect(() => {
+    useEffect(() => {
         const processNextInQueue = async () => {
             if (isProcessing || processingQueue.length === 0) return;
             setIsProcessing(true);
             const pdfId = processingQueue[0];
-            
-            const findResult = folders.reduce<{ folder?: MetadataProjectFolder, pdfFile?: PdfFile }>((acc, f) => {
-                const pdf = f.pdfFiles.find(p => p.id === pdfId);
-                if (pdf) { acc.folder = f; acc.pdfFile = pdf; }
-                return acc;
-            }, {});
-
-            const { pdfFile } = findResult;
+            const pdfFile = folders.flatMap(f => f.pdfFiles).find(p => p.id === pdfId);
             const fileObject = transientFiles.current.get(pdfId);
 
-            const updatePdfFile = (status: PdfFileStatus, data: Partial<PdfFile>) => {
-                setFolders(prev => prev.map(f => ({
-                    ...f,
-                    pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, status, ...data } : p)
-                })));
-            };
-            
             if (!pdfFile || !fileObject) {
                 addLog(pdfId, "ERROR: File object not found for processing.");
-                updatePdfFile('error', { logs: [...(pdfFile?.logs || []), `[ERROR] File not found for processing.`] });
-                setIsProcessing(false);
-                setProcessingQueue(q => q.slice(1));
-                return;
+                updatePdfFile(pdfId, { status: 'error', logs: [...(pdfFile?.logs || []), `[ERROR] File not found.`] });
+                setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
 
             addLog(pdfId, `Starting processing for ${fileObject.name}.`);
-            updatePdfFile('processing', { progress: 0 });
+            updatePdfFile(pdfId, { status: 'processing', progress: 0 });
             let hasErrors = false;
 
             try {
                 addLog(pdfId, `Loading PDF...`);
                 const fileBuffer = await fileObject.arrayBuffer();
-                // FIX: Pass the file buffer as a Uint8Array to pdfjsLib.getDocument.
                 const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(fileBuffer) }).promise;
-                
                 let allAssets: ExtractedAsset[] = [];
                 addLog(pdfId, `PDF has ${pdf.numPages} pages. Beginning asset extraction.`);
 
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                      try {
                         const progress = Math.round((pageNum / pdf.numPages) * 100);
-                        updatePdfFile('processing', { progress });
+                        updatePdfFile(pdfId, { progress });
                         addLog(pdfId, `Processing page ${pageNum}/${pdf.numPages}...`);
                         
                         const page = await pdf.getPage(pageNum);
@@ -367,20 +326,17 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                         canvas.height = viewport.height;
                         canvas.width = viewport.width;
                         const context = canvas.getContext('2d');
-                        await page.render({ canvasContext: context!, viewport }).promise;
+                        if (!context) throw new Error("Canvas 2D context not available");
+                        // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
+                        await page.render({ canvasContext: context, viewport }).promise;
                         const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
                         
-                        // FIX: The function call was missing its argument.
-                        const assetsOnPage = await extractAssetsFromPage(pageImageBase64);
-
+                        const assetsOnPage = await extractAssetsFromPage(pageImageBase64, selectedModel);
                         if (assetsOnPage.length > 0) {
                             addLog(pdfId, `Found ${assetsOnPage.length} asset(s) on page ${pageNum}.`);
                             allAssets = [...allAssets, ...assetsOnPage.map(asset => ({...asset, id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, pageNumber: pageNum}))];
                         }
-                        
-                        if (pageNum < pdf.numPages) {
-                           await new Promise(resolve => setTimeout(resolve, 1100)); // Proactive delay
-                        }
+                        if (pageNum < pdf.numPages) await new Promise(resolve => setTimeout(resolve, 1100));
                     } catch (pageError) {
                         hasErrors = true;
                         const errorMessage = pageError instanceof Error ? pageError.message : "Unknown error during page processing.";
@@ -388,121 +344,93 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                     }
                 }
                 
-                updatePdfFile(hasErrors ? 'error' : 'completed', { assets: allAssets, progress: 100 });
+                updatePdfFile(pdfId, { status: hasErrors ? 'error' : 'completed', assets: allAssets, progress: 100 });
                 addLog(pdfId, `Processing finished ${hasErrors ? 'with errors' : 'successfully'}.`);
-                addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor' });
-
+                addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor', modelName: selectedModel });
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "Fatal processing failed";
                 addLog(pdfId, `FATAL ERROR: ${errorMessage}`);
-                updatePdfFile('error', {});
+                updatePdfFile(pdfId, { status: 'error' });
             } finally {
                 setIsProcessing(false);
                 setProcessingQueue(q => q.slice(1));
             }
         };
         processNextInQueue();
-    }, [processingQueue, isProcessing, folders, addUsageLog, currentUser]);
+    }, [processingQueue, isProcessing, folders, addUsageLog, currentUser, addLog, updatePdfFile, selectedModel]);
 
-    // --- Editor Actions ---
-    const handleAssetUpdate = (pdfId: string, assetId: string, field: keyof ExtractedAsset, value: any) => {
-        setFolders(prev => prev.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => 
-            p.id === pdfId ? { ...p, assets: p.assets?.map(a => a.id === assetId ? { ...a, [field]: value } : a) } : p
-        )})));
-    };
-
-    const handleAssetDelete = (pdfId: string, assetId: string) => {
-        setFolders(prev => prev.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => 
-            p.id === pdfId ? { ...p, assets: p.assets?.filter(a => a.id !== assetId) } : p
-        )})));
-    };
-    
-    const handlePdfDelete = (folderId: string, pdfId: string) => {
-        setFolders(prev => prev.map(f => f.id === folderId ? { ...f, pdfFiles: f.pdfFiles.filter(p => p.id !== pdfId) } : f));
-    };
-
-    const handleRegenerateAsset = async (pdfId: string, assetId: string) => {
-        const folder = folders.find(f => f.pdfFiles.some(p => p.id === pdfId));
-        if (!folder) return;
-
-        const pdfFile = folder.pdfFiles.find(p => p.id === pdfId);
+    const handleRegenerateAsset = async (pdfId: string, assetId: string, modelName: string) => {
+        const pdfFile = folders.flatMap(f => f.pdfFiles).find(p => p.id === pdfId);
         const asset = pdfFile?.assets?.find(a => a.id === assetId);
         const fileObject = transientFiles.current.get(pdfId);
 
         if (!pdfFile || !asset || !asset.pageNumber || !asset.boundingBox || !fileObject) {
-            addToast({ type: 'error', message: "Could not find asset or required data to regenerate." });
-            return;
+            addToast({ type: 'error', message: "Could not find asset or required data to regenerate." }); return;
         }
 
         addToast({ type: 'info', message: `Regenerating metadata for ${asset.assetId}...` });
-
         try {
             const pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(await fileObject.arrayBuffer()) }).promise;
             const page = await pdfDoc.getPage(asset.pageNumber);
-            const scale = 2; // Higher scale for better quality crop
+            const scale = 2;
             const viewport = page.getViewport({ scale });
-
             const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
+            canvas.width = viewport.width; canvas.height = viewport.height;
             const context = canvas.getContext('2d');
             if (!context) throw new Error("Could not get canvas context");
-
+            // Fix: The `canvas` property is not a valid parameter for the `render` method and was causing an error.
             await page.render({ canvasContext: context, viewport }).promise;
 
             const { x, y, width, height } = asset.boundingBox;
             const croppedCanvas = document.createElement('canvas');
-            const sx = (x / 100) * canvas.width;
-            const sy = (y / 100) * canvas.height;
-            const sWidth = (width / 100) * canvas.width;
-            const sHeight = (height / 100) * canvas.height;
-
-            croppedCanvas.width = sWidth;
-            croppedCanvas.height = sHeight;
+            const sx = (x / 100) * canvas.width; const sy = (y / 100) * canvas.height;
+            const sWidth = (width / 100) * canvas.width; const sHeight = (height / 100) * canvas.height;
+            croppedCanvas.width = sWidth; croppedCanvas.height = sHeight;
             const croppedContext = croppedCanvas.getContext('2d');
             if (!croppedContext) throw new Error("Could not get cropped canvas context");
-
             croppedContext.drawImage(canvas, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
 
             const imageDataUrl = croppedCanvas.toDataURL('image/png');
-            const newMetadata = await generateMetadataForCroppedImage(imageDataUrl);
+            const newMetadata = await generateMetadataForCroppedImage(imageDataUrl, modelName);
             
-            const updatedAsset = {
-                ...asset,
-                assetId: newMetadata.assetId,
-                assetType: newMetadata.assetType,
-                preview: newMetadata.preview,
-                altText: newMetadata.altText,
-                keywords: newMetadata.keywords,
-                taxonomy: newMetadata.taxonomy,
-            };
-
-            setFolders(prev => prev.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => 
-                p.id === pdfId ? { ...p, assets: p.assets?.map(a => a.id === assetId ? updatedAsset : a) } : p
-            )})));
-
+            updateMetadataAsset(pdfId, assetId, { ...newMetadata, assetId: newMetadata.assetId || asset.assetId });
 
             addToast({ type: 'success', message: `Successfully regenerated metadata for ${asset.assetId}.` });
-            addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor (Regen)' });
-
+            addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor (Regen)', modelName: modelName });
         } catch (error) {
             console.error("Regeneration failed:", error);
-            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-            addToast({ type: 'error', message: `Regeneration failed: ${errorMessage}` });
+            addToast({ type: 'error', message: `Regeneration failed: ${error instanceof Error ? error.message : "Unknown"}` });
         }
     };
 
-
     const handleExport = (pdfFile: PdfFile) => {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Filename,Asset ID,Asset Type,Page/Location,Alt Text,Keywords,Taxonomy\n";
-        pdfFile.assets?.forEach(asset => {
-            const row = [pdfFile.name, asset.assetId, asset.assetType, asset.pageNumber, `"${asset.altText.replace(/"/g, '""')}"`, `"${asset.keywords.join(', ').replace(/"/g, '""')}"`, `"${asset.taxonomy.replace(/"/g, '""')}"`].join(',');
+        const fileName = `${pdfFile.name}_metadata.csv`;
+        let csvContent = "Filename,Asset ID,Asset Type,Page/Location,Alt Text,Keywords,Taxonomy\n";
+        (pdfFile.assets || []).forEach(asset => {
+            const row = [
+                pdfFile.name,
+                asset.assetId,
+                asset.assetType,
+                asset.pageNumber,
+                `"${(asset.altText || '').replace(/"/g, '""')}"`,
+                `"${(asset.keywords || []).join(', ').replace(/"/g, '""')}"`,
+                `"${(asset.taxonomy || '').replace(/"/g, '""')}"`
+            ].join(',');
             csvContent += row + "\r\n";
         });
+
+        // Save to download history
+        addGeneratedReport({
+            fileName: fileName,
+            toolName: 'Metadata Extractor',
+            content: csvContent,
+            mimeType: 'text/csv;charset=utf-8,',
+        });
+        
+        // Trigger download
         const link = document.createElement("a");
-        link.setAttribute("href", encodeURI(csvContent));
-        link.setAttribute("download", `${pdfFile.name}_metadata.csv`);
+        link.setAttribute("href", 'data:text/csv;charset=utf-8,' + encodeURI(csvContent));
+        link.setAttribute("download", fileName);
         link.click();
     };
 
@@ -510,33 +438,38 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
         const folder = folders.find(f => f.id === currentPdf.folderId);
         const pdfFile = folder?.pdfFiles.find(p => p.id === currentPdf.pdfId);
         if (folder && pdfFile) {
-            // Re-attach transient file object if it exists for the editor view
-            const transientFile = transientFiles.current.get(pdfFile.id);
-            if(transientFile) pdfFile.file = transientFile;
-
+            if (!pdfFile.file) pdfFile.file = transientFiles.current.get(pdfFile.id);
             return <EditorView 
-                folder={folder} 
-                pdfFile={pdfFile} 
-                onBack={() => setView('dashboard')}
-                onAssetUpdate={(assetId, field, value) => handleAssetUpdate(pdfFile.id, assetId, field, value)}
-                onAssetDelete={(assetId) => handleAssetDelete(pdfFile.id, assetId)}
-                onRegenerate={(assetId) => handleRegenerateAsset(pdfFile.id, assetId)}
-                onExport={handleExport}
+                folder={folder} pdfFile={pdfFile} onBack={() => setView('dashboard')}
+                onAssetUpdate={(assetId, field, value) => updateMetadataAsset(pdfFile.id, assetId, { [field]: value })}
+                onAssetDelete={(assetId) => deleteMetadataAsset(pdfFile.id, assetId)}
+                // Fix: Correctly pass arguments to handleRegenerateAsset by using a lambda function.
+                onRegenerate={(assetId, modelName) => handleRegenerateAsset(pdfFile.id, assetId, modelName)} onExport={handleExport}
+                model={selectedModel} setModel={setSelectedModel} canUsePro={currentUser?.canUseProModel || false}
             />;
         }
     }
 
     return (
         <div className="animate-fade-in h-full flex flex-col p-4 md:p-6 lg:p-8 bg-gray-100 dark:bg-gray-900">
-            {/* Header */}
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Metadata Extractor</h2>
                 </div>
-                <button onClick={() => setCreateFolderModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>New Folder</button>
+                 <div className="flex items-center gap-4">
+                    {currentUser?.canUseProModel && (
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium">Model:</label>
+                            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-1.5 focus:ring-primary-500 focus:border-primary-500">
+                                <option value="gemini-2.5-flash">Flash (Fast)</option>
+                                <option value="gemini-2.5-pro">Pro (Advanced)</option>
+                            </select>
+                        </div>
+                     )}
+                    <button onClick={() => setCreateFolderModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>New Folder</button>
+                </div>
             </div>
-            {/* Dashboard */}
             <div className="flex-grow overflow-y-auto space-y-6">
                 {folders.length === 0 && (
                     <div className="text-center py-16 text-gray-500">
@@ -545,11 +478,10 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                         <p>Click "New Folder" to get started.</p>
                     </div>
                 )}
-                {folders.map(folder => <FolderCard key={folder.id} folder={folder} onDrop={onDrop} onView={(pdfId) => { setCurrentPdf({ folderId: folder.id, pdfId }); setView('editor');}} onDeletePdf={(pdfId) => handlePdfDelete(folder.id, pdfId)} onDeleteFolder={() => handleDeleteFolder(folder.id)} onShowLogs={(pdf) => setLogModalState({isOpen: true, logs: pdf.logs || [], fileName: pdf.name})} />)}
+                {folders.map(folder => <FolderCard key={folder.id} folder={folder} onDrop={onDrop} onView={(pdfId) => { setCurrentPdf({ folderId: folder.id, pdfId }); setView('editor');}} onDeletePdf={(pdfId) => deletePdfFile(folder.id, pdfId)} onDeleteFolder={() => deleteMetadataFolder(folder.id)} onShowLogs={(pdf) => setLogModalState({isOpen: true, logs: pdf.logs || [], fileName: pdf.name})} />)}
             </div>
-            {/* Modals */}
              <Modal isOpen={createFolderModalOpen} onClose={() => setCreateFolderModalOpen(false)} title="Create New Folder">
-                <form onSubmit={(e) => { e.preventDefault(); handleCreateFolder(); }} className="space-y-4">
+                <form onSubmit={(e) => { e.preventDefault(); if (newFolderName.trim()) createMetadataFolder(newFolderName.trim()); setNewFolderName(''); setCreateFolderModalOpen(false); }} className="space-y-4">
                     <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="Folder Name" className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600" />
                     <div className="flex justify-end mt-4 space-x-2">
                         <button type="button" onClick={() => setCreateFolderModalOpen(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded">Cancel</button>
@@ -571,10 +503,7 @@ const FolderCard = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onSho
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
             <div className="p-4 bg-gray-50 dark:bg-gray-700/50 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-3">
-                    <FolderIcon className="h-6 w-6 text-primary-500" />
-                    <h3 className="font-bold text-lg">{folder.name}</h3>
-                </div>
+                <div className="flex items-center gap-3"> <FolderIcon className="h-6 w-6 text-primary-500" /> <h3 className="font-bold text-lg">{folder.name}</h3> </div>
                 <button onClick={onDeleteFolder} className="p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700"><TrashIcon className="h-5 w-5"/></button>
             </div>
             <div {...getRootProps({ className: `p-4 relative transition-colors ${isDragActive ? 'bg-primary-500/10' : ''}` })}>
@@ -593,12 +522,7 @@ const FolderCard = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onSho
 };
 
 const PdfFileRow = ({ pdf, onView, onDelete, onShowLogs }: { pdf: PdfFile, onView: (pdfId: string) => void, onDelete: (pdfId: string) => void, onShowLogs: (pdf: PdfFile) => void }) => {
-    const statusStyles = {
-        queued: 'text-gray-500',
-        processing: 'text-blue-500',
-        completed: 'text-green-500',
-        error: 'text-red-500',
-    };
+    const statusStyles = { queued: 'text-gray-500', processing: 'text-blue-500', completed: 'text-green-500', error: 'text-red-500' };
     return (
          <div className="bg-gray-100 dark:bg-gray-900/50 p-2 rounded-md">
             <div className="flex justify-between items-center">

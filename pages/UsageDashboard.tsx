@@ -1,11 +1,24 @@
-
 import React from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { InfoIcon } from '../components/icons/Icons';
+import { DownloadIcon } from '../components/icons/Icons';
+import { GeneratedReport } from '../types';
+
+const handleDownload = (report: GeneratedReport) => {
+    const blob = new Blob([report.content], { type: report.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = report.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
 
 export default function UsageDashboard() {
-  const { currentUser, usageLogs } = useAppContext();
+  const { currentUser, usageLogs, currentUserData } = useAppContext();
+  const generatedReports = currentUserData?.generatedReports || [];
 
   const userLogs = currentUser ? usageLogs.filter(log => log.userId === currentUser.id) : [];
 
@@ -20,10 +33,10 @@ export default function UsageDashboard() {
   const percentageUsed = currentUser ? (currentUser.tokensUsed / currentUser.tokenCap) * 100 : 0;
 
   return (
-    <div className="animate-fade-in">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">Usage / Token Dashboard</h2>
+    <div className="animate-fade-in space-y-8">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Usage / Token Dashboard</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
           <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Tokens Used</h3>
           <p className="text-3xl font-bold text-gray-900 dark:text-white">{currentUser?.tokensUsed.toLocaleString()}</p>
@@ -38,7 +51,7 @@ export default function UsageDashboard() {
         </div>
       </div>
       
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Consumption Overview</h3>
         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
             <div
@@ -56,7 +69,43 @@ export default function UsageDashboard() {
         )}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+        <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Download History</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Filename</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tool</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+              {generatedReports.map(report => (
+                <tr key={report.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{new Date(report.timestamp).toLocaleString()}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{report.fileName}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{report.toolName}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button onClick={() => handleDownload(report)} className="inline-flex items-center text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-200">
+                      <DownloadIcon className="h-4 w-4 mr-1" />
+                      Download
+                    </button>
+                  </td>
+                </tr>
+              ))}
+               {generatedReports.length === 0 && (
+                <tr>
+                    <td colSpan={4} className="text-center py-8 text-gray-500">No reports generated yet.</td>
+                </tr>
+                )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
         <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Usage by Day</h3>
         <div style={{ width: '100%', height: 300 }}>
           <ResponsiveContainer>
@@ -87,6 +136,7 @@ export default function UsageDashboard() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tool Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Model Used</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Prompt Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Response Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Total</th>
@@ -97,11 +147,19 @@ export default function UsageDashboard() {
                 <tr key={log.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{new Date(log.timestamp).toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{log.toolName}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                    <code className="text-xs bg-gray-200 dark:bg-gray-600 p-1 rounded">{log.modelName}</code>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{log.promptTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{log.responseTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{(log.promptTokens + log.responseTokens).toLocaleString()}</td>
                 </tr>
               ))}
+               {userLogs.length === 0 && (
+                <tr>
+                    <td colSpan={6} className="text-center py-8 text-gray-500">No usage logs for this period.</td>
+                </tr>
+                )}
             </tbody>
           </table>
         </div>

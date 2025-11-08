@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset } from '../types';
@@ -17,10 +16,11 @@ interface ImageAsset {
 }
 
 export default function ImageMetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, addToast } = useAppContext();
+    const { currentUser, addUsageLog, addToast, addGeneratedReport } = useAppContext();
     const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
     const [status, setStatus] = useState<'idle' | 'processing' | 'done' | 'error'>('idle');
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
 
     const onDrop = useCallback((acceptedFiles: File[]) => {
         const newImageAssets: ImageAsset[] = acceptedFiles.map(file => ({
@@ -37,32 +37,21 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
         onDrop,
         accept: { 'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'] },
     });
-
-    // This ref is used to correctly clean up object URLs when the component unmounts.
-    // It holds the latest version of the assets array to avoid stale closures in the cleanup effect.
-    const imageAssetsRef = useRef<ImageAsset[]>();
+    
+    const imageAssetsRef = useRef(imageAssets);
     imageAssetsRef.current = imageAssets;
 
     useEffect(() => {
-        // This effect's cleanup function will run only when the component unmounts,
-        // thanks to the empty dependency array.
         return () => {
-            // Use the ref to access the latest asset list and revoke all URLs.
             if (imageAssetsRef.current) {
                 imageAssetsRef.current.forEach(asset => URL.revokeObjectURL(asset.previewUrl));
             }
         };
-    }, []); // Empty dependency array ensures cleanup runs only on unmount.
+    }, []);
 
     const handleProcess = async () => {
-        if (!currentUser) {
-            addToast({ type: 'error', message: 'No user logged in.' });
-            return;
-        }
-        if (currentUser.tokensUsed >= currentUser.tokenCap) {
-            addToast({ type: 'error', message: 'Token cap reached - contact admin.' });
-            return;
-        }
+        if (!currentUser) { addToast({ type: 'error', message: 'No user logged in.' }); return; }
+        if (currentUser.tokensUsed >= currentUser.tokenCap) { addToast({ type: 'error', message: 'Token cap reached - contact admin.' }); return; }
 
         setStatus('processing');
         const assetsToProcess = imageAssets.filter(a => a.status === 'pending');
@@ -77,21 +66,17 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                     reader.onerror = error => reject(error);
                 });
 
-                // FIX: The function call was missing its arguments.
-                const metadata = await generateMetadataForImage(base64, asset.file.type);
+                const metadata = await generateMetadataForImage(base64, asset.file.type, selectedModel);
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'done', metadata: { ...metadata, id: a.id } } : a));
 
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'error', error: errorMessage } : a));
             }
-
-            if (index < assetsToProcess.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1100));
-            }
+            if (index < assetsToProcess.length - 1) await new Promise(resolve => setTimeout(resolve, 1100));
         }
 
-        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor' });
+        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor', modelName: selectedModel });
         setStatus('done');
         addToast({ type: 'success', message: `Processing complete.` });
         if (imageAssets.length > 0 && !selectedAssetId) {
@@ -100,32 +85,24 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
     };
     
     const handleCellUpdate = (assetId: string, field: keyof ExtractedAsset, value: any) => {
-        setImageAssets(prev =>
-          prev.map(asset => {
-              if (asset.id === assetId && asset.metadata) {
-                  const newMetadata = { ...asset.metadata, [field]: value };
-                  return { ...asset, metadata: newMetadata };
-              }
-              return asset;
-          })
-        );
+        setImageAssets(prev => prev.map(asset => {
+            if (asset.id === assetId && asset.metadata) {
+                return { ...asset, metadata: { ...asset.metadata, [field]: value } };
+            }
+            return asset;
+        }));
     };
     
     const handleDeleteAsset = (assetId: string) => {
         const assetToRemove = imageAssets.find(asset => asset.id === assetId);
-        if (assetToRemove) {
-            URL.revokeObjectURL(assetToRemove.previewUrl);
-        }
+        if (assetToRemove) URL.revokeObjectURL(assetToRemove.previewUrl);
         setImageAssets(prev => prev.filter(asset => asset.id !== assetId));
-        if (selectedAssetId === assetId) {
-            setSelectedAssetId(null);
-        }
+        if (selectedAssetId === assetId) setSelectedAssetId(null);
     };
 
     const handleExport = () => {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Filename,Asset ID,Asset Type,Alt Text,Keywords,Taxonomy\n";
-
+        const fileName = "image_metadata_export.csv";
+        let csvContent = "Filename,Asset ID,Asset Type,Alt Text,Keywords,Taxonomy\n";
         imageAssets.forEach(asset => {
             if (!asset.metadata) return;
             const row = [
@@ -139,14 +116,19 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             csvContent += row + "\r\n";
         });
 
-        const encodedUri = encodeURI(csvContent);
+        addGeneratedReport({
+            fileName,
+            toolName: 'Image Metadata Extractor',
+            content: csvContent,
+            mimeType: 'text/csv;charset=utf-8,',
+        });
+
+        const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "image_metadata_export.csv");
-        document.body.appendChild(link);
+        link.setAttribute("download", fileName);
         link.click();
-        document.body.removeChild(link);
-        addToast({ type: 'info', message: "CSV export initiated." })
+        addToast({ type: 'info', message: "CSV export initiated and saved to history." })
     }
     
     const selectedAsset = imageAssets.find(a => a.id === selectedAssetId);
@@ -156,9 +138,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             <div {...getRootProps()} className={`flex-grow p-10 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors flex flex-col justify-center items-center ${isDragActive ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-primary-400'}`}>
                 <input {...getInputProps()} />
                 <UploadIcon className="h-12 w-12 mx-auto text-gray-400" />
-                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    {isDragActive ? "Drop the images here..." : "Drag 'n' drop images here, or click to select"}
-                </p>
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{isDragActive ? "Drop the images here..." : "Drag 'n' drop images here, or click to select"}</p>
                 <p className="text-xs text-gray-500">JPG, PNG, GIF, WEBP</p>
             </div>
             {imageAssets.length > 0 && (
@@ -173,11 +153,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                         </div>
                     ))}
                 </div>
-                <button
-                    onClick={handleProcess}
-                    disabled={imageAssets.length === 0}
-                    className="mt-4 w-full py-3 px-4 bg-indigo-500 text-white font-semibold rounded-lg hover:bg-indigo-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                >
+                <button onClick={handleProcess} disabled={imageAssets.length === 0} className="mt-4 w-full py-3 px-4 bg-indigo-500 text-white font-semibold rounded-lg hover:bg-indigo-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors">
                     Generate Metadata for {imageAssets.length} image{imageAssets.length > 1 ? 's' : ''}
                 </button>
                 </>
@@ -191,31 +167,22 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             <div className="w-full max-w-md bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mt-4">
                 <div className="bg-indigo-500 h-2.5 rounded-full" style={{ width: `${(imageAssets.filter(a=> a.status === 'done' || a.status === 'error').length / imageAssets.length) * 100}%` }}></div>
             </div>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                {imageAssets.filter(a=> a.status === 'done' || a.status === 'error').length} of {imageAssets.length} images complete.
-            </p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{imageAssets.filter(a=> a.status === 'done' || a.status === 'error').length} of {imageAssets.length} images complete.</p>
         </div>
     );
     
     const renderResultsArea = () => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full overflow-hidden">
-        {/* Left Panel: Image List */}
         <div className="md:col-span-1 flex flex-col h-full overflow-hidden">
              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md flex-shrink-0">
                  <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">Images ({imageAssets.length})</h3>
-                    <button onClick={handleExport} className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 inline-flex items-center">
-                        <DownloadIcon className="h-4 w-4 mr-1"/>Export
-                    </button>
+                    <button onClick={handleExport} className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 inline-flex items-center"><DownloadIcon className="h-4 w-4 mr-1"/>Export</button>
                 </div>
             </div>
             <div className="mt-4 flex-grow overflow-y-auto space-y-2 pr-2">
                 {imageAssets.map(asset => (
-                    <button 
-                        key={asset.id} 
-                        onClick={() => setSelectedAssetId(asset.id)}
-                        className={`w-full text-left p-2 rounded-lg flex items-center gap-3 transition-colors ${selectedAssetId === asset.id ? 'bg-primary-100 dark:bg-primary-900/50' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                    >
+                    <button key={asset.id} onClick={() => setSelectedAssetId(asset.id)} className={`w-full text-left p-2 rounded-lg flex items-center gap-3 transition-colors ${selectedAssetId === asset.id ? 'bg-primary-100 dark:bg-primary-900/50' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                         <img src={asset.previewUrl} className="w-12 h-12 object-cover rounded-md flex-shrink-0" />
                         <div className="flex-grow overflow-hidden">
                             <p className="text-sm font-medium truncate text-gray-800 dark:text-gray-200">{asset.metadata?.assetId || asset.file.name}</p>
@@ -227,8 +194,6 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 ))}
             </div>
         </div>
-
-        {/* Right Panel: Metadata Editor */}
         <div className="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md h-full overflow-y-auto">
             {selectedAsset && selectedAsset.metadata ? (
                 <div className="space-y-6">
@@ -248,9 +213,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                                 {selectedAsset.metadata.keywords?.map((k, index) => (
                                     <span key={index} className="flex items-center text-sm bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
                                         {k}
-                                        <button onClick={() => handleCellUpdate(selectedAsset.id, 'keywords', selectedAsset.metadata?.keywords?.filter((_, i) => i !== index))} className="ml-1.5 text-gray-500 dark:text-gray-300 hover:text-red-500">
-                                            <XIcon className="h-3 w-3" />
-                                        </button>
+                                        <button onClick={() => handleCellUpdate(selectedAsset.id, 'keywords', selectedAsset.metadata?.keywords?.filter((_, i) => i !== index))} className="ml-1.5 text-gray-500 dark:text-gray-300 hover:text-red-500"><XIcon className="h-3 w-3" /></button>
                                     </span>
                                 ))}
                                 <input type="text" placeholder="Add..." onKeyDown={(e) => {
@@ -269,22 +232,28 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                     </div>
                 </div>
             ) : (
-                 <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-                    <p>Select an image to view its metadata.</p>
-                </div>
+                 <div className="flex flex-col items-center justify-center h-full text-center text-gray-500"><p>Select an image to view its metadata.</p></div>
             )}
         </div>
     </div>
   );
 
-
     return (
         <div className="animate-fade-in h-full flex flex-col p-4 md:p-6 lg:p-8 bg-gray-100 dark:bg-gray-900">
-            <div className="flex items-center mb-6 flex-shrink-0">
-                <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3">
-                    <ChevronLeftIcon className="h-5 w-5" />
-                </button>
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Extractor</h2>
+            <div className="flex items-center justify-between mb-6 flex-shrink-0">
+                 <div className="flex items-center">
+                    <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Extractor</h2>
+                </div>
+                 {currentUser?.canUseProModel && (
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium">Model:</label>
+                        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-1.5 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="gemini-2.5-flash">Flash (Fast)</option>
+                            <option value="gemini-2.5-pro">Pro (Advanced)</option>
+                        </select>
+                    </div>
+                 )}
             </div>
             
             <div className="flex-grow overflow-hidden">

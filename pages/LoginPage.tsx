@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { SparklesIcon } from '../components/icons/Icons';
@@ -7,15 +6,10 @@ export default function LoginPage() {
   const { login } = useAppContext();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (login(email, password)) {
-      setError('');
-    } else {
-      setError('Invalid email or password.');
-    }
+    login(email, password);
   };
 
   return (
@@ -63,7 +57,6 @@ export default function LoginPage() {
               />
             </div>
           </div>
-          {error && <p className="text-sm text-center text-red-500">{error}</p>}
           <div>
             <button
               type="submit"

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 
 const CodeBlock = ({ code, language }: { code: string; language: string }) => {
@@ -30,7 +29,7 @@ const ApiSection = ({ title, description, model, curlExample, jsExample, schema 
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{description}</p>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            <strong>Gemini Model:</strong> <code className="text-xs bg-gray-200 dark:bg-gray-700 p-1 rounded">{model}</code>
+            <strong>Recommended Model:</strong> <code className="text-xs bg-gray-200 dark:bg-gray-700 p-1 rounded">{model}</code>
         </p>
 
         <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">cURL Request</h4>
@@ -106,7 +105,7 @@ extractMetadata();`;
   }
 }`;
 
-    const complianceCurl = `curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=YOUR_API_KEY" \
+    const complianceCurl = `curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
     -H 'Content-Type: application/json' \
     -d '{
       "contents": "You are a compliance editor. Compare the MANUSCRIPT CHUNK against the RULES DOCUMENT...\\n\\nMANUSCRIPT CHUNK:\\n[Page 1] The quick brown fox...\\n\\nRULES DOCUMENT TEXT:\\nAll titles must be in sentence case...",
@@ -128,7 +127,7 @@ extractMetadata();`;
     }'`;
 
     const complianceJs = `const apiKey = 'YOUR_API_KEY';
-const url = \`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=\${apiKey}\`;
+const url = \`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\${apiKey}\`;
 
 const body = {
   // ... (see cURL example for the full body structure)
@@ -183,8 +182,8 @@ checkCompliance();`;
 
             <ApiSection
                 title="Compliance Checker"
-                description="This endpoint compares a chunk of manuscript text against a set of rules to find compliance issues. For best results with large documents, send the manuscript text in chunks (e.g., 20-30 pages at a time)."
-                model="gemini-2.5-pro"
+                description="This endpoint compares a chunk of manuscript text against a set of rules to find compliance issues. For best results with large documents, send the manuscript text in chunks (e.g., 20-30 pages at a time). For more complex rule sets, consider using gemini-2.5-pro."
+                model="gemini-2.5-flash"
                 curlExample={complianceCurl}
                 jsExample={complianceJs}
                 schema={complianceSchema}

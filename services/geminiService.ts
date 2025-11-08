@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
 import { ExtractedAsset, AssetType, ComplianceFinding } from '../types';
 
@@ -105,11 +104,6 @@ const COMPLIANCE_SCHEMA = {
 const MAX_RETRIES = 5;
 const INITIAL_DELAY_MS = 2000;
 
-/**
- * A wrapper function that adds retry logic with exponential backoff for API calls.
- * @param apiCall The async function to call.
- * @returns The result of the API call.
- */
 async function apiCallWithRetry<T>(apiCall: () => Promise<T>): Promise<T> {
     let attempts = 0;
     let delay = INITIAL_DELAY_MS;
@@ -124,29 +118,23 @@ async function apiCallWithRetry<T>(apiCall: () => Promise<T>): Promise<T> {
             if (attempts < MAX_RETRIES && isRateLimitError) {
                 console.warn(`Rate limit hit. Retrying in ${delay / 1000}s... (Attempt ${attempts}/${MAX_RETRIES})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 2; // Exponential backoff
+                delay *= 2; 
             } else {
                 console.error("API call failed after multiple retries or with a non-retriable error:", error);
-                throw error; // Re-throw the error if it's not a rate limit issue or retries are exhausted
+                throw error;
             }
         }
     }
     throw new Error("API call failed after maximum retries.");
 }
 
-
-/**
- * Processes a single page image from a PDF to extract metadata for all assets on that page.
- * @param pageImageBase64 - Base64 encoded string of the page image (JPEG format).
- * @returns A promise that resolves to an array of extracted assets for that page.
- */
-export async function extractAssetsFromPage(pageImageBase64: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber'>[]> {
+export async function extractAssetsFromPage(pageImageBase64: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber'>[]> {
     const imagePart = { inlineData: { data: pageImageBase64, mimeType: 'image/jpeg' } };
     const textPart = { text: "Analyze the provided image, which is a single page from a document. Find ALL assets (figures, tables, images, equations, maps, and graphs) on this page. For each asset, extract its metadata according to the schema. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification. If no assets are found, return an empty array." };
 
     try {
         const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: modelName,
             contents: { parts: [imagePart, textPart] },
             config: {
                 responseMimeType: 'application/json',
@@ -155,30 +143,26 @@ export async function extractAssetsFromPage(pageImageBase64: string): Promise<Om
         }));
         
         const jsonText = response.text.trim();
-        return JSON.parse(jsonText);
+        const parsedJson = JSON.parse(jsonText);
+        if (!Array.isArray(parsedJson)) {
+            console.warn("API returned non-array for page assets, returning empty array.", parsedJson);
+            return [];
+        }
+        return parsedJson;
+
     } catch (error) {
         console.error("Error calling Gemini API for page processing:", error);
         throw new Error("Failed to process page with Gemini API.");
     }
 }
 
-
-export async function generateMetadataForCroppedImage(imageDataUrl: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
+export async function generateMetadataForCroppedImage(imageDataUrl: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
   const imageData = imageDataUrl.split(',')[1];
-
-  const imagePart = {
-    inlineData: {
-      data: imageData,
-      mimeType: 'image/png'
-    }
-  };
-  
-  const textPart = {
-    text: 'Analyze the provided image, which is a cropped asset from a document. Generate metadata for it according to the schema. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification.'
-  };
+  const imagePart = { inlineData: { data: imageData, mimeType: 'image/png' } };
+  const textPart = { text: 'Analyze the provided image, which is a cropped asset from a document. Generate metadata for it according to the schema. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification.' };
 
   const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: modelName,
     contents: { parts: [imagePart, textPart] },
     config: {
       responseMimeType: 'application/json',
@@ -187,16 +171,20 @@ export async function generateMetadataForCroppedImage(imageDataUrl: string): Pro
   }));
 
   const jsonText = response.text.trim();
-  return JSON.parse(jsonText);
+  const parsedJson = JSON.parse(jsonText);
+    if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
+        throw new Error("API returned invalid format for single asset metadata.");
+    }
+  return parsedJson;
 }
 
-export async function generateMetadataForImage(imageBase64: string, mimeType: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
+export async function generateMetadataForImage(imageBase64: string, mimeType: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
     const imagePart = { inlineData: { data: imageBase64, mimeType: mimeType } };
     const textPart = { text: "Analyze the provided image. Generate all metadata fields according to the schema. For the assetId, create a short descriptive ID based on the image content. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification." };
 
     try {
         const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: modelName,
             contents: { parts: [imagePart, textPart] },
             config: {
                 responseMimeType: 'application/json',
@@ -205,21 +193,22 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
         }));
         
         const jsonText = response.text.trim();
-        return JSON.parse(jsonText);
+        const parsedJson = JSON.parse(jsonText);
+        if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
+            throw new Error("API returned invalid format for image metadata.");
+        }
+        return parsedJson;
     } catch (error) {
         console.error("Error calling Gemini API for image processing:", error);
         throw new Error("Failed to process image with Gemini API.");
     }
 }
 
-export async function performComplianceCheck(manuscriptText: string, rulesText: string): Promise<ComplianceFinding[]> {
+export async function performComplianceCheck(manuscriptText: string, rulesText: string, modelName: string): Promise<ComplianceFinding[]> {
     const prompt = `
         You are a meticulous compliance editor. Your task is to compare the provided 'MANUSCRIPT CHUNK' against the provided 'RULES DOCUMENT'.
-        
         Analyze the RULES DOCUMENT to understand all submission rules.
-        
         Then, carefully check the MANUSCRIPT CHUNK against each rule.
-        
         For every rule that you can verify (either pass or fail) based *only* on the content within this specific CHUNK, provide a compliance finding according to the provided JSON schema. If evidence for a rule is not present in this chunk, do not report on it.
         - If the chunk complies with a rule, mark it as 'pass'.
         - If it clearly violates a rule, mark it as 'fail'.
@@ -235,7 +224,7 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
 
     try {
         const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: modelName,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
@@ -243,7 +232,12 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
             },
         }));
         const jsonText = response.text.trim();
-        return JSON.parse(jsonText);
+        const parsedJson = JSON.parse(jsonText);
+        if (!Array.isArray(parsedJson)) {
+            console.warn("API returned non-array for compliance check, returning empty array.", parsedJson);
+            return [];
+        }
+        return parsedJson;
     } catch (error) {
         console.error("Error calling Gemini API for compliance check:", error);
         throw new Error("Failed to perform compliance check with Gemini API.");

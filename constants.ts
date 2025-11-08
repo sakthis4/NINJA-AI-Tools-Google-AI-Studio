@@ -10,6 +10,7 @@ export const USERS: User[] = [
     tokensUsed: 12500,
     lastLogin: '2023-10-27T10:00:00Z',
     status: 'active',
+    canUseProModel: true, // Admin can use Pro models
   },
   {
     id: 2,
@@ -20,6 +21,7 @@ export const USERS: User[] = [
     tokensUsed: 45000,
     lastLogin: '2023-10-27T12:30:00Z',
     status: 'active',
+    canUseProModel: false, // Standard user is restricted
   },
   {
     id: 3,
@@ -30,6 +32,7 @@ export const USERS: User[] = [
     tokensUsed: 19950,
     lastLogin: '2023-10-25T08:00:00Z',
     status: 'inactive',
+    canUseProModel: false,
   },
 ];
 
@@ -38,6 +41,7 @@ export const USAGE_LOGS: UsageLog[] = [
         id: 'log1',
         userId: 1,
         toolName: 'Metadata Extractor',
+        modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-27T10:05:00Z',
         promptTokens: 2500,
         responseTokens: 1500
@@ -46,6 +50,7 @@ export const USAGE_LOGS: UsageLog[] = [
         id: 'log2',
         userId: 2,
         toolName: 'Metadata Extractor',
+        modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-27T12:35:00Z',
         promptTokens: 8000,
         responseTokens: 4200
@@ -54,6 +59,7 @@ export const USAGE_LOGS: UsageLog[] = [
         id: 'log3',
         userId: 2,
         toolName: 'Metadata Extractor',
+        modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-26T11:00:00Z',
         promptTokens: 15000,
         responseTokens: 7800

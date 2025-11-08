@@ -1,4 +1,3 @@
-
 export enum Role {
   Admin = 'Admin',
   User = 'User',
@@ -13,12 +12,14 @@ export interface User {
   tokensUsed: number;
   lastLogin: string;
   status: 'active' | 'inactive';
+  canUseProModel: boolean; // Admin guardrail for expensive models
 }
 
 export interface UsageLog {
   id: string;
   userId: number;
   toolName: string;
+  modelName: string; // Track which model was used
   timestamp: string;
   promptTokens: number;
   responseTokens: number;
@@ -135,4 +136,23 @@ export interface MetadataProjectFolder {
   id: string;
   name: string;
   pdfFiles: PdfFile[];
+}
+
+// New type for storing generated reports
+export interface GeneratedReport {
+  id: string;
+  fileName: string;
+  toolName: string;
+  timestamp: string;
+  content: string; // The actual file content (e.g., CSV string, log text)
+  mimeType: string; // e.g., 'text/csv', 'text/plain'
+}
+
+// Central data store for each user
+export interface UserDataStore {
+  metadataFolders: MetadataProjectFolder[];
+  complianceFolders: ProjectFolder[];
+  complianceProfiles: ComplianceProfile[];
+  ruleFiles: Record<string, RuleFile>;
+  generatedReports: GeneratedReport[]; // Add storage for reports
 }
