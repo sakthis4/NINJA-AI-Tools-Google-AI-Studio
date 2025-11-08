@@ -35,8 +35,9 @@ export default function App() {
     return (
         <>
             <LoginPage />
-            <footer className="fixed bottom-0 w-full p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-center flex justify-center items-center">
+            <footer className="fixed bottom-0 w-full p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
                 <StatusBar />
+                <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>
             </footer>
         </>
     );
@@ -65,8 +66,9 @@ export default function App() {
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
           {renderView()}
         </main>
-        <footer className="flex-shrink-0 p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-center flex justify-center items-center">
+        <footer className="flex-shrink-0 p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
             <StatusBar />
+            <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>
         </footer>
       </div>
     </div>

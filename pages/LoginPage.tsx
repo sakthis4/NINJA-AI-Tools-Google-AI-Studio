@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
-import { SparklesIcon } from '../components/icons/Icons';
+import { SparklesIcon, LockClosedIcon } from '../components/icons/Icons';
 
 export default function LoginPage() {
   const { login } = useAppContext();
@@ -66,7 +67,12 @@ export default function LoginPage() {
             </button>
           </div>
         </form>
-         <p className="text-xs text-center text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</p>
+         <div className="mt-6 text-center">
+            <div className="inline-flex items-center">
+                <LockClosedIcon className="h-4 w-4 text-green-500 mr-2" />
+                <span className="text-xs text-gray-500 dark:text-gray-400">Secure SSL/TLS Connection</span>
+            </div>
+        </div>
       </div>
     </div>
   );

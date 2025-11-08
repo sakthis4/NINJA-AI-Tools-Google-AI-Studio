@@ -5,7 +5,7 @@ import { ExtractedAsset } from '../types';
 import { useAppContext } from '../hooks/useAppContext';
 import { generateMetadataForImage } from '../services/geminiService';
 import Spinner from '../components/Spinner';
-import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, XIcon, ExclamationIcon } from '../components/icons/Icons';
+import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, XIcon, ExclamationIcon, ShieldCheckIcon } from '../components/icons/Icons';
 
 interface ImageAsset {
     id: string;
@@ -137,6 +137,10 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 <UploadIcon className="h-12 w-12 mx-auto text-gray-400" />
                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{isDragActive ? "Drop the images here..." : "Drag 'n' drop images here, or click to select"}</p>
                 <p className="text-xs text-gray-500">JPG, PNG, GIF, WEBP</p>
+                <div className="mt-4 flex items-center text-xs text-gray-500">
+                    <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500" />
+                    <span>Your files are processed securely.</span>
+                </div>
             </div>
             {imageAssets.length > 0 && (
                 <>

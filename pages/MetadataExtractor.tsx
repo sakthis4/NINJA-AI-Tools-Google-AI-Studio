@@ -5,7 +5,7 @@ import { ExtractedAsset, BoundingBox, MetadataProjectFolder, PdfFile, PdfFileSta
 import { useAppContext } from '../hooks/useAppContext';
 import { extractAssetsFromPage, generateMetadataForCroppedImage } from '../services/geminiService';
 import Spinner from '../components/Spinner';
-import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, ChevronDownIcon, XIcon, CursorClickIcon, ExclamationIcon, FolderIcon, DocumentTextIcon, PlusCircleIcon, ClipboardListIcon } from '../components/icons/Icons';
+import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, ChevronDownIcon, XIcon, CursorClickIcon, ExclamationIcon, FolderIcon, DocumentTextIcon, PlusCircleIcon, ClipboardListIcon, ShieldCheckIcon } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import Modal from '../components/Modal';
 
@@ -98,7 +98,8 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
     const [pageDimensions, setPageDimensions] = useState<{ width: number; height: number; }[]>([]);
     const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
     const viewerRef = useRef<HTMLDivElement>(null);
-    const resizeTimer = useRef<ReturnType<typeof setTimeout>>();
+    // FIX: Initialize useRef with an initial value (null) when a generic type parameter is provided.
+    const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
@@ -500,6 +501,10 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                         <UploadIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
                         <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">Start your first project</h3>
                         <p className="text-gray-500">Drag & drop a PDF here, or click to select one.</p>
+                        <div className="mt-4 flex items-center text-xs text-gray-500">
+                            <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                            <span>Your files are processed securely.</span>
+                        </div>
                         <p className="text-xs text-gray-500 mt-2">A "Default Project" folder will be created for you automatically.</p>
                     </div>
                 ) : (
@@ -542,6 +547,10 @@ const FolderCard: React.FC<{ folder: MetadataProjectFolder, onDrop: (files: File
                     or click here to select files...
                     <input type="file" multiple accept=".pdf" className="hidden" onChange={(e) => e.target.files && onDrop(Array.from(e.target.files), folder.id)} />
                 </label>
+                <div className="flex items-center justify-center mt-2 text-xs text-gray-500">
+                    <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                    <span>Your files are processed securely.</span>
+                </div>
             </div>
         </div>
     );

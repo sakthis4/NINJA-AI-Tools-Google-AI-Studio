@@ -1,14 +1,20 @@
+
 import React from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import CheckCircleIcon from './icons/CheckCircleIcon';
 import ExclamationCircleIcon from './icons/ExclamationCircleIcon';
-import { InfoIcon } from './icons/Icons';
+import { InfoIcon, ShieldCheckIcon } from './icons/Icons';
 
 const StatusBar: React.FC = () => {
     const { statusBarMessage } = useAppContext();
 
     if (!statusBarMessage) {
-        return <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>;
+        return (
+            <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
+                <ShieldCheckIcon className="h-4 w-4" />
+                <span>End-to-end data encryption enabled</span>
+            </div>
+        );
     }
 
     const { type, message } = statusBarMessage;

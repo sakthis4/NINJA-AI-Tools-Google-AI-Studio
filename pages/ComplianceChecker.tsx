@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import { performComplianceCheck } from '../services/geminiService';
@@ -268,7 +268,15 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
             </button>
             {isExpanded && <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
                 {profile.ruleFileIds.map(id => (<div key={id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md"><p className="text-sm truncate">{ruleFiles[id]?.name}</p><button onClick={() => onRuleDelete(id)} className="text-gray-400 hover:text-red-500 ml-2"><XIcon className="h-4 w-4"/></button></div>))}
-                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary-500"><input {...getInputProps()} /><UploadIcon className="h-8 w-8 mx-auto text-gray-400" /><p className="mt-2 text-sm">Add Rule Document(s)</p></div>
+                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary-500">
+                    <input {...getInputProps()} />
+                    <UploadIcon className="h-8 w-8 mx-auto text-gray-400" />
+                    <p className="mt-2 text-sm">Add Rule Document(s)</p>
+                    <div className="mt-2 flex items-center justify-center text-xs text-gray-500">
+                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                        <span>Your files are processed securely.</span>
+                    </div>
+                </div>
             </div>}
         </div>
     );
@@ -299,7 +307,15 @@ const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[
             </button>
             {isExpanded && <div className="p-4 border-t">
                 <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} />)}</div>
-                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500"><input {...getInputProps()} /><UploadIcon className="h-8 w-8 mx-auto text-gray-400" /><p className="mt-2 text-sm">Upload Manuscripts</p></div>
+                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500">
+                    <input {...getInputProps()} />
+                    <UploadIcon className="h-8 w-8 mx-auto text-gray-400" />
+                    <p className="mt-2 text-sm">Upload Manuscripts</p>
+                    <div className="mt-2 flex items-center justify-center text-xs text-gray-500">
+                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                        <span>Your files are processed securely.</span>
+                    </div>
+                </div>
             </div>}
         </div>
     );

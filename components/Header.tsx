@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useAppContext } from '../hooks/useAppContext';
-import { SunIcon, MoonIcon, InfoIcon, UserCircleIcon } from './icons/Icons';
+import { SunIcon, MoonIcon, InfoIcon, UserCircleIcon, ShieldCheckIcon } from './icons/Icons';
 import { Role } from '../types';
 
 export default function Header() {
@@ -21,6 +21,10 @@ export default function Header() {
                     <p className="text-sm font-medium text-gray-900 dark:text-white">{currentUser?.email}</p>
                     <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${currentUser?.role === Role.Admin ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300' : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'}`}>{currentUser?.role}</span>
                 </div>
+            </div>
+            <div className="hidden md:flex items-center ml-4 pl-4 border-l border-gray-200 dark:border-gray-700">
+                <ShieldCheckIcon className="h-5 w-5 text-green-500" />
+                <span className="ml-2 text-xs font-medium text-gray-500 dark:text-gray-400">Secure Session</span>
             </div>
         </div>
         

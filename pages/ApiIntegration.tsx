@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 
 const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => {
@@ -171,6 +172,13 @@ checkCompliance(manuscriptChunk, rulesDocument);`;
             <p className="mb-6 text-gray-600 dark:text-gray-400">
                 Integrate the core functionalities of this application directly into your own services, such as a Content Management System (CMS) or an automated publishing pipeline.
             </p>
+            
+            <div className="bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500 p-4 rounded-r-lg mb-8">
+                <h3 className="text-lg font-bold text-blue-800 dark:text-blue-300 mb-2">Security-First Architecture</h3>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                    This application is built with a secure backend proxy model as a core design principle. Your API key is never exposed to the client-side, ensuring your credentials and data are always protected.
+                </p>
+            </div>
 
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">1. Authentication</h3>
