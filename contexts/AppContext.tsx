@@ -1,10 +1,11 @@
 import React, { createContext, useReducer, ReactNode, useCallback, useMemo, useEffect } from 'react';
-import { User, Role, UsageLog, UserDataStore, PdfFile, ManuscriptFile, AppState, StatusBarMessage } from '../types';
+import { User, Role, UsageLog, UserDataStore, PdfFile, ManuscriptFile, AppState, StatusBarMessage, ExtractedAsset } from '../types';
 import { USERS, USAGE_LOGS } from '../constants';
 import { loadInitialState, STORAGE_KEY } from '../services/migrationService';
 
 interface AppContextType {
   theme: 'light' | 'dark';
+  // FIX: Corrected the function type syntax from 'to' to '=>'.
   toggleTheme: () => void;
   users: User[];
   currentUser: User | null;
@@ -24,6 +25,7 @@ interface AppContextType {
   createMetadataFolderAndAddPdfs: (folderName: string, files: PdfFile[]) => void;
   updatePdfFile: (pdfId: string, updates: Partial<PdfFile>) => void;
   deletePdfFile: (folderId: string, pdfId: string) => void;
+  addMetadataAsset: (pdfId: string, newAsset: ExtractedAsset) => void;
   updateMetadataAsset: (pdfId: string, assetId: string, updates: Partial<any>) => void;
   deleteMetadataAsset: (pdfId: string, assetId: string) => void;
   createComplianceProfile: (name: string) => void;
@@ -207,6 +209,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [updateCurrentUserStore]);
   const updatePdfFile = useCallback((pdfId: string, updates: Partial<PdfFile>) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, ...updates } : p) })) })), [updateCurrentUserStore]);
   const deletePdfFile = useCallback((folderId: string, pdfId: string) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => f.id === folderId ? { ...f, pdfFiles: f.pdfFiles.filter(p => p.id !== pdfId) } : f) })), [updateCurrentUserStore]);
+  
+  const addMetadataAsset = useCallback((pdfId: string, newAsset: ExtractedAsset) => {
+    updateCurrentUserStore(store => ({
+      ...store,
+      metadataFolders: store.metadataFolders.map(f => ({
+        ...f,
+        pdfFiles: f.pdfFiles.map(p => {
+          if (p.id === pdfId) {
+            const newAssets = [...(p.assets || []), newAsset];
+            newAssets.sort((a, b) => {
+              if (a.pageNumber !== b.pageNumber) {
+                return (a.pageNumber ?? 0) - (b.pageNumber ?? 0);
+              }
+              if (a.boundingBox && b.boundingBox) {
+                return a.boundingBox.y - b.boundingBox.y;
+              }
+              return 0;
+            });
+            return { ...p, assets: newAssets };
+          }
+          return p;
+        })
+      }))
+    }));
+  }, [updateCurrentUserStore]);
+
   const updateMetadataAsset = useCallback((pdfId: string, assetId: string, updates: Partial<any>) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, assets: p.assets?.map(a => a.id === assetId ? { ...a, ...updates } : a) } : p) })) })), [updateCurrentUserStore]);
   const deleteMetadataAsset = useCallback((pdfId: string, assetId: string) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, assets: p.assets?.filter(a => a.id !== assetId) } : p) })) })), [updateCurrentUserStore]);
 
@@ -237,11 +265,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     logout,
     currentUserData,
     createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs,
-    updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset,
+    updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset,
     createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile,
     deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder,
     updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript,
-  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript]);
+  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript]);
 
   if (!state.isInitialized) return null;
 

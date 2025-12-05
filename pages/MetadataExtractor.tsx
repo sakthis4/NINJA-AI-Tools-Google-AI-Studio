@@ -5,7 +5,7 @@ import { ExtractedAsset, BoundingBox, MetadataProjectFolder, PdfFile, PdfFileSta
 import { useAppContext } from '../hooks/useAppContext';
 import { extractAssetsFromPage, generateMetadataForCroppedImage } from '../services/geminiService';
 import Spinner from '../components/Spinner';
-import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, ChevronDownIcon, XIcon, CursorClickIcon, ExclamationIcon, FolderIcon, DocumentTextIcon, PlusCircleIcon, ClipboardListIcon, ShieldCheckIcon } from '../components/icons/Icons';
+import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, ChevronDownIcon, XIcon, CursorClickIcon, ExclamationIcon, FolderIcon, DocumentTextIcon, PlusCircleIcon, ClipboardListIcon, ShieldCheckIcon, CheckIcon } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import Modal from '../components/Modal';
 
@@ -29,13 +29,16 @@ interface LazyPdfPageProps {
     pageNum: number;
     scale: number;
     viewerRef: React.RefObject<HTMLDivElement>;
+    isZoningMode: boolean;
+    onZone: (box: BoundingBox, pageNum: number) => void;
 }
 
-const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewerRef }) => {
+const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewerRef, isZoningMode, onZone }) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [isIntersecting, setIsIntersecting] = useState(false);
     const [isRendered, setIsRendered] = useState(false);
+    const [drawingBox, setDrawingBox] = useState<{ startX: number, startY: number, endX: number, endY: number} | null>(null);
 
     useEffect(() => {
         const observer = new IntersectionObserver(([entry]) => {
@@ -56,8 +59,6 @@ const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewe
             if (!context) return;
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-            // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
-            // Casting to 'any' to bypass the erroneous type check for the render parameters.
             ((page.render as any)({ canvasContext: context, viewport })).promise.then(() => {
                 if (!isCancelled) setIsRendered(true);
             });
@@ -65,9 +66,62 @@ const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewe
         return () => { isCancelled = true; };
     }, [isIntersecting, isRendered, pdfDoc, pageNum, scale]);
 
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!isZoningMode) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const startX = e.clientX - rect.left;
+        const startY = e.clientY - rect.top;
+        setDrawingBox({ startX, startY, endX: startX, endY: startY });
+    };
+
+    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!drawingBox) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const endX = e.clientX - rect.left;
+        const endY = e.clientY - rect.top;
+        setDrawingBox({...drawingBox, endX, endY });
+    };
+
+    const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!drawingBox) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const { startX, startY, endX, endY } = drawingBox;
+        
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const width = Math.abs(endX - startX);
+        const height = Math.abs(endY - startY);
+
+        if (width > 5 && height > 5) { // Threshold to prevent accidental tiny boxes
+            onZone({
+                x: (x / rect.width) * 100,
+                y: (y / rect.height) * 100,
+                width: (width / rect.width) * 100,
+                height: (height / rect.height) * 100,
+            }, pageNum);
+        }
+        setDrawingBox(null);
+    };
+
+    const getBoxStyle = () => {
+        if (!drawingBox) return {};
+        const { startX, startY, endX, endY } = drawingBox;
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const width = Math.abs(endX - startX);
+        const height = Math.abs(endY - startY);
+        return {
+            left: `${x}px`,
+            top: `${y}px`,
+            width: `${width}px`,
+            height: `${height}px`,
+        };
+    };
+
     return (
-        <div ref={containerRef} className="absolute inset-0">
+        <div ref={containerRef} className="absolute inset-0" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
             {isIntersecting && <canvas ref={canvasRef} className={isRendered ? 'block' : 'hidden'} />}
+            {drawingBox && <div className="absolute border-2 border-dashed border-red-500 bg-red-500/20" style={getBoxStyle()} />}
             {isIntersecting && !isRendered && (
                 <div className="w-full h-full flex items-center justify-center bg-gray-300 dark:bg-gray-600">
                     <Spinner size="md" />
@@ -77,11 +131,13 @@ const LazyPdfPage: React.FC<LazyPdfPageProps> = ({ pdfDoc, pageNum, scale, viewe
     );
 };
 
+
 // --- Editor View Component ---
 interface EditorViewProps {
     folder: MetadataProjectFolder;
     pdfFile: PdfFile;
     onBack: () => void;
+    onAssetAdd: (newAsset: ExtractedAsset) => void;
     onAssetUpdate: (assetId: string, field: keyof ExtractedAsset, value: any) => void;
     onAssetDelete: (assetId: string) => void;
     onRegenerate: (assetId: string, modelName: string) => void;
@@ -89,19 +145,22 @@ interface EditorViewProps {
     model: string;
 }
 
-const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model }) => {
+const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAssetAdd, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model }) => {
+    const { addUsageLog, setStatusBarMessage, currentUser } = useAppContext();
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
     const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pdfScale, setPdfScale] = useState(0);
     const [pageDimensions, setPageDimensions] = useState<{ width: number; height: number; }[]>([]);
     const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
     const viewerRef = useRef<HTMLDivElement>(null);
-    // FIX: Initialize useRef with an initial value (null) when a generic type parameter is provided.
     const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const [isZoningMode, setIsZoningMode] = useState(false);
+    const [newZone, setNewZone] = useState<{ box: BoundingBox, pageNum: number} | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
 
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
-        // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
         await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 0));
         const container = viewerRef.current;
         const style = window.getComputedStyle(container);
@@ -156,6 +215,67 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
         }
     }, [selectedAssetId, pdfFile.assets]);
 
+    const handleZoneCreated = (box: BoundingBox, pageNum: number) => {
+        setNewZone({ box, pageNum });
+        setIsZoningMode(false);
+    };
+
+    const handleManualAssetGeneration = async () => {
+        if (!newZone || !pdfDoc || !currentUser) return;
+        setIsGenerating(true);
+        setStatusBarMessage(`Generating metadata for new asset...`, 'info');
+        try {
+            const { box, pageNum } = newZone;
+            const page = await pdfDoc.getPage(pageNum);
+            const scale = 2.5; // Use a higher resolution for cropping
+            const viewport = page.getViewport({ scale });
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+            const context = tempCanvas.getContext('2d');
+            if (!context) throw new Error("Could not get canvas context");
+
+            await (page.render as any)({ canvasContext: context, viewport }).promise;
+
+            const sx = (box.x / 100) * tempCanvas.width;
+            const sy = (box.y / 100) * tempCanvas.height;
+            const sWidth = (box.width / 100) * tempCanvas.width;
+            const sHeight = (box.height / 100) * tempCanvas.height;
+
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = sWidth; croppedCanvas.height = sHeight;
+            const croppedContext = croppedCanvas.getContext('2d');
+            if (!croppedContext) throw new Error("Could not get cropped canvas context");
+            croppedContext.drawImage(tempCanvas, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+
+            const imageDataUrl = croppedCanvas.toDataURL('image/png');
+            const newMetadata = await generateMetadataForCroppedImage(imageDataUrl, model);
+
+            const newAsset: ExtractedAsset = {
+                ...newMetadata,
+                id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                pageNumber: pageNum,
+                boundingBox: box,
+                preview: newMetadata.preview || "Manually added asset",
+            };
+            
+            onAssetAdd(newAsset);
+            addUsageLog({ 
+                userId: currentUser.id, 
+                toolName: 'PDF Asset Analyzer (Manual Add)', 
+                modelName: model,
+                outputId: pdfFile.id,
+                outputName: `${pdfFile.name} (Asset: ${newAsset.assetId})`,
+            });
+            setStatusBarMessage(`Successfully added new asset: ${newAsset.assetId}`, 'success');
+
+        } catch (error) {
+            setStatusBarMessage(`Failed to generate metadata: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');
+        } finally {
+            setIsGenerating(false);
+            setNewZone(null);
+        }
+    };
+    
     return (
         <div className="h-full flex flex-col">
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
@@ -170,13 +290,22 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                 </div>
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full overflow-hidden">
-                {/* PDF Viewer */}
-                <div ref={viewerRef} className="overflow-y-auto bg-gray-200 dark:bg-gray-700 p-2 md:p-4 rounded-lg shadow-inner">
+                <div ref={viewerRef} className={`overflow-y-auto bg-gray-200 dark:bg-gray-700 p-2 md:p-4 rounded-lg shadow-inner ${isZoningMode ? 'cursor-crosshair' : ''}`}>
                     {pdfDoc && pageDimensions.length > 0 ? pageDimensions.map((dim, index) => (
-                        <div key={`page_${index + 1}`} ref={el => { pageRefs.current[index] = el; }} data-page-index={index}
+                        <div key={`page_${index + 1}`} data-page-index={index}
                              className="relative shadow-lg mb-4 bg-white dark:bg-gray-800 mx-auto"
                              style={{ width: dim.width, height: dim.height }}>
-                            <LazyPdfPage pdfDoc={pdfDoc} pageNum={index + 1} scale={pdfScale} viewerRef={viewerRef} />
+                            <LazyPdfPage pdfDoc={pdfDoc} pageNum={index + 1} scale={pdfScale} viewerRef={viewerRef} isZoningMode={isZoningMode} onZone={handleZoneCreated}/>
+                            {newZone && newZone.pageNum === index + 1 && (
+                                <div className="absolute border-2 border-green-500 bg-green-500/20 pointer-events-none" style={{ left: `${newZone.box.x}%`, top: `${newZone.box.y}%`, width: `${newZone.box.width}%`, height: `${newZone.box.height}%` }}>
+                                    <div className="absolute -top-10 right-0 flex items-center space-x-1 pointer-events-auto">
+                                        <button onClick={() => setNewZone(null)} className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 shadow-lg"><XIcon className="h-4 w-4" /></button>
+                                        <button onClick={handleManualAssetGeneration} disabled={isGenerating} className="p-1.5 bg-green-600 text-white rounded-full hover:bg-green-700 shadow-lg disabled:bg-gray-400">
+                                            {isGenerating ? <Spinner size="sm"/> : <CheckIcon className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )) : (
                          <div className="flex flex-col items-center justify-center h-full text-center text-gray-600 dark:text-gray-400">
@@ -186,14 +315,17 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                         </div>
                     )}
                 </div>
-                {/* Metadata Editor */}
                  <div className="flex flex-col h-full overflow-hidden">
                      <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-md mb-4 flex-shrink-0">
                          <div className="flex justify-between items-center">
                             <h3 className="text-base md:text-lg font-semibold">Extracted Assets ({pdfFile.assets?.length || 0})</h3>
-                            <button onClick={() => onExport(pdfFile)} className="px-2 py-1.5 text-xs md:text-sm bg-green-500 text-white rounded-md hover:bg-green-600 inline-flex items-center">
-                                <DownloadIcon className="h-4 w-4 mr-1"/>Export CSV
-                            </button>
+                            <div className="flex items-center space-x-2">
+                                <button onClick={() => setIsZoningMode(true)} className={`px-2 py-1.5 text-xs md:text-sm text-white rounded-md inline-flex items-center transition-colors ${isZoningMode ? 'bg-red-500 hover:bg-red-600' : 'bg-primary-500 hover:bg-primary-600'}`}>
+                                    {isZoningMode ? <XIcon className="h-4 w-4 mr-1"/> : <CursorClickIcon className="h-4 w-4 mr-1"/>}
+                                    {isZoningMode ? 'Cancel' : 'Add Asset'}
+                                </button>
+                                <button onClick={() => onExport(pdfFile)} className="px-2 py-1.5 text-xs md:text-sm bg-green-500 text-white rounded-md hover:bg-green-600 inline-flex items-center"><DownloadIcon className="h-4 w-4 mr-1"/>Export CSV</button>
+                            </div>
                         </div>
                     </div>
                     <div className="space-y-3 pb-4 flex-grow overflow-y-auto pr-2">
@@ -256,7 +388,7 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 
 // --- Main Dashboard Component ---
 export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
-    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, updateMetadataAsset, deleteMetadataAsset, createMetadataFolderAndAddPdfs } = useAppContext();
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createMetadataFolderAndAddPdfs } = useAppContext();
     const folders = currentUserData?.metadataFolders || [];
 
     const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
@@ -343,8 +475,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                         canvas.width = viewport.width;
                         const context = canvas.getContext('2d');
                         if (!context) throw new Error("Canvas 2D context not available");
-                        // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
-                        // Casting to 'any' to bypass the erroneous type check for the render parameters.
                         await (page.render as any)({ canvasContext: context, viewport }).promise;
                         const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
                         
@@ -353,7 +483,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                             addLog(pdfId, `Found ${assetsOnPage.length} asset(s) on page ${pageNum}.`);
                             allAssets = [...allAssets, ...assetsOnPage.map(asset => ({...asset, id: `${performance.now()}-${Math.random().toString(36).substring(2, 9)}`, pageNumber: pageNum}))];
                         }
-                        // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
                         if (pageNum < pdf.numPages) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
                     } catch (pageError) {
                         hasErrors = true;
@@ -402,8 +531,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             canvas.width = viewport.width; canvas.height = viewport.height;
             const context = canvas.getContext('2d');
             if (!context) throw new Error("Could not get canvas context");
-            // FIX: The type definitions for this version of pdfjs-dist appear to be incorrect.
-            // Casting to 'any' to bypass the erroneous type check for the render parameters.
             await (page.render as any)({ canvasContext: context, viewport }).promise;
 
             const { x, y, width, height } = asset.boundingBox;
@@ -450,7 +577,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             csvContent += row + "\r\n";
         });
 
-        // Trigger download
         const link = document.createElement("a");
         link.setAttribute("href", 'data:text/csv;charset=utf-8,' + encodeURI(csvContent));
         link.setAttribute("download", fileName);
@@ -467,6 +593,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             if (!pdfFile.file) pdfFile.file = transientFiles.current.get(pdfFile.id);
             return <EditorView 
                 folder={folder} pdfFile={pdfFile} onBack={() => setView('dashboard')}
+                onAssetAdd={(newAsset) => addMetadataAsset(pdfFile.id, newAsset)}
                 onAssetUpdate={(assetId, field, value) => updateMetadataAsset(pdfFile.id, assetId, { [field]: value })}
                 onAssetDelete={(assetId) => deleteMetadataAsset(pdfFile.id, assetId)}
                 onRegenerate={(assetId, modelName) => handleRegenerateAsset(pdfFile.id, assetId, modelName)} onExport={handleExport}
