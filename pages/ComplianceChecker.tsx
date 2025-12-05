@@ -146,7 +146,13 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 }
 
                 addComplianceLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);
-                addUsageLog({ userId: currentUser!.id, toolName: 'Compliance Checker', modelName: selectedModel });
+                addUsageLog({ 
+                    userId: currentUser!.id, 
+                    toolName: 'Compliance Checker', 
+                    modelName: selectedModel,
+                    outputId: manuscriptId,
+                    outputName: fileObject.name,
+                });
                 updateManuscript(manuscriptId, { status: 'completed', report: allFindings, progress: 100 });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
@@ -304,20 +310,29 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
 };
 
 const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadLog }) => (
-    <div className="bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md">
-        <div className="flex justify-between items-center">
-            <p className="text-sm truncate flex-1">{manuscript.name}</p>
-            <div className="flex items-center space-x-3 ml-4">
-                <ManuscriptStatusIndicator status={manuscript.status} />
-                {manuscript.status === 'completed' && <button onClick={() => onViewReport(manuscript)} className="text-xs text-sky-500 hover:underline">Report</button>}
-                <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><ClipboardListIcon className="h-4 w-4"/></button>
-                {manuscript.status === 'completed' && <button onClick={() => onDownloadLog(manuscript)} title="Download Report" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><DownloadIcon className="h-4 w-4"/></button>}
-                <button onClick={() => onManuscriptDelete(manuscript.id)} className="text-slate-400 hover:text-red-500"><XIcon className="h-4 w-4"/></button>
+    <div className="bg-slate-100 dark:bg-slate-700/50 p-3 rounded-md">
+        <div className="flex justify-between items-center gap-4">
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{manuscript.name}</p>
+                 <div className="mt-1">
+                    <ManuscriptStatusIndicator status={manuscript.status} />
+                </div>
+            </div>
+            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                {manuscript.status === 'completed' && (
+                    <>
+                        <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/50 rounded-md hover:bg-sky-200 dark:hover:bg-sky-900">View Report</button>
+                        <button onClick={() => onDownloadLog(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
+                    </>
+                )}
+                <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full"><ClipboardListIcon className="h-4 w-4"/></button>
+                <button onClick={() => onManuscriptDelete(manuscript.id)} title="Delete" className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"><TrashIcon className="h-4 w-4"/></button>
             </div>
         </div>
         {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
     </div>
 );
+
 
 const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });

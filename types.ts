@@ -1,3 +1,4 @@
+
 export enum Role {
   Admin = 'Admin',
   User = 'User',
@@ -23,6 +24,10 @@ export interface UsageLog {
   timestamp: string;
   promptTokens: number;
   responseTokens: number;
+  // New fields for report download from dashboard
+  outputId?: string; // e.g., manuscriptId, pdfFileId
+  outputName?: string; // e.g., the original filename
+  reportData?: any; // For transient data like image tool results
 }
 
 export enum AssetType {

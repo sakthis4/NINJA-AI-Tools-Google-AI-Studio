@@ -78,11 +78,26 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
         }
 
-        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Generator', modelName: selectedModel });
+        const finalImageAssets = imageAssetsRef.current;
+        const resultsForLog = finalImageAssets
+            .filter(a => a.status === 'done' && a.metadata)
+            .map(a => ({
+                fileName: a.file.name,
+                metadata: a.metadata
+            }));
+
+        addUsageLog({ 
+            userId: currentUser.id, 
+            toolName: 'Image Metadata Generator', 
+            modelName: selectedModel,
+            outputName: `${assetsToProcess.length} image(s) processed`,
+            reportData: resultsForLog
+        });
+        
         setStatus('done');
         setStatusBarMessage(`Processing complete.`, 'success');
-        if (imageAssets.length > 0 && !selectedAssetId) {
-            setSelectedAssetId(imageAssets[0].id);
+        if (finalImageAssets.length > 0 && !selectedAssetId) {
+            setSelectedAssetId(finalImageAssets[0].id);
         }
     };
     

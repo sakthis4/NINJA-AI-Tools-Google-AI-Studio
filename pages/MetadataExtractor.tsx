@@ -364,7 +364,13 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                 
                 updatePdfFile(pdfId, { status: hasErrors ? 'error' : 'completed', assets: allAssets, progress: 100 });
                 addLog(pdfId, `Processing finished ${hasErrors ? 'with errors' : 'successfully'}.`);
-                addUsageLog({ userId: currentUser!.id, toolName: 'PDF Asset Analyzer', modelName: selectedModel });
+                addUsageLog({ 
+                    userId: currentUser!.id, 
+                    toolName: 'PDF Asset Analyzer', 
+                    modelName: selectedModel,
+                    outputId: pdfId,
+                    outputName: fileObject.name,
+                });
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "Fatal processing failed";
                 addLog(pdfId, `FATAL ERROR: ${errorMessage}`);
@@ -415,7 +421,13 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             updateMetadataAsset(pdfId, assetId, { ...newMetadata, assetId: newMetadata.assetId || asset.assetId });
 
             setStatusBarMessage(`Successfully regenerated metadata for ${asset.assetId}.`, 'success');
-            addUsageLog({ userId: currentUser!.id, toolName: 'PDF Asset Analyzer (Regen)', modelName: modelName });
+            addUsageLog({ 
+                userId: currentUser!.id, 
+                toolName: 'PDF Asset Analyzer (Regen)', 
+                modelName: modelName,
+                outputId: pdfId,
+                outputName: `${fileObject.name} (Asset: ${asset.assetId})`,
+            });
         } catch (error) {
             console.error("Regeneration failed:", error);
             setStatusBarMessage(`Regeneration failed: ${error instanceof Error ? error.message : "Unknown"}`, 'error');

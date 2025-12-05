@@ -2,9 +2,11 @@
 import React, { useMemo } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { UsageLog } from '../types';
+import { DownloadIcon } from '../components/icons/Icons';
 
 export default function UsageDashboard() {
-  const { currentUser, usageLogs } = useAppContext();
+  const { currentUser, usageLogs, currentUserData, setStatusBarMessage } = useAppContext();
 
   const userLogs = currentUser ? usageLogs.filter(log => log.userId === currentUser.id) : [];
 
@@ -17,6 +19,69 @@ export default function UsageDashboard() {
   
   const tokensRemaining = currentUser ? currentUser.tokenCap - currentUser.tokensUsed : 0;
   const percentageUsed = currentUser ? (currentUser.tokensUsed / currentUser.tokenCap) * 100 : 0;
+  
+  const downloadFile = (fileName: string, content: string, mimeType: string) => {
+      const blob = new Blob([content], { type: mimeType });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      setStatusBarMessage(`Downloading ${fileName}`, 'success');
+  };
+
+  const handleDownload = (log: UsageLog) => {
+    if (!currentUserData) {
+        setStatusBarMessage('User data not available for download.', 'error');
+        return;
+    }
+
+    try {
+        if (log.toolName === 'Compliance Checker' && log.outputId) {
+            const manuscript = currentUserData.complianceFolders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
+            if (manuscript) {
+                const fileName = `${manuscript.name}.log.txt`;
+                let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
+                (manuscript.report || []).forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                downloadFile(fileName, content, 'text/plain');
+            } else { throw new Error('Could not find the original manuscript data.'); }
+        } else if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) {
+            const pdfFile = currentUserData.metadataFolders.flatMap(f => f.pdfFiles).find(p => p.id === log.outputId);
+            if (pdfFile) {
+                const fileName = `${pdfFile.name}_metadata.csv`;
+                let csvContent = "Filename,Asset ID,Asset Type,Page/Location,Alt Text,Keywords,Taxonomy\n";
+                (pdfFile.assets || []).forEach(asset => {
+                    const row = [pdfFile.name, asset.assetId, asset.assetType, asset.pageNumber, `"${(asset.altText || '').replace(/"/g, '""')}"`, `"${(asset.keywords || []).join(', ').replace(/"/g, '""')}"`, `"${(asset.taxonomy || '').replace(/"/g, '""')}"`].join(',');
+                    csvContent += row + "\r\n";
+                });
+                downloadFile(fileName, csvContent, 'text/csv;charset=utf-8');
+            } else { throw new Error('Could not find the original PDF data.'); }
+        } else if (log.toolName === 'Image Metadata Generator' && log.reportData) {
+            const fileName = "image_metadata_export.csv";
+            let csvContent = "Filename,Asset ID,Asset Type,Alt Text,Keywords,Taxonomy\n";
+            (log.reportData as any[]).forEach(assetResult => {
+                const { fileName: imgFileName, metadata } = assetResult;
+                if (!metadata) return;
+                const row = [imgFileName, metadata.assetId, metadata.assetType, `"${(metadata.altText || '').replace(/"/g, '""')}"`, `"${(metadata.keywords || []).join(', ').replace(/"/g, '""')}"`, `"${(metadata.taxonomy || '').replace(/"/g, '""')}"`].join(',');
+                csvContent += row + "\r\n";
+            });
+            downloadFile(fileName, csvContent, 'text/csv;charset=utf-8');
+        } else {
+            throw new Error('No downloadable report available for this entry.');
+        }
+    } catch (error) {
+        setStatusBarMessage(error instanceof Error ? error.message : 'An unknown error occurred.', 'error');
+    }
+  };
+
+  const isDownloadable = (log: UsageLog): boolean => {
+      if (log.toolName === 'Compliance Checker' && log.outputId) return true;
+      if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) return true;
+      if (log.toolName === 'Image Metadata Generator' && log.reportData) return true;
+      return false;
+  };
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -89,9 +154,11 @@ export default function UsageDashboard() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Tool Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">File / Job</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Prompt Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Response Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Total</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
@@ -99,14 +166,25 @@ export default function UsageDashboard() {
                 <tr key={log.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-slate-100">{new Date(log.timestamp).toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.toolName}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300 max-w-xs truncate" title={log.outputName}>{log.outputName || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.promptTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.responseTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-slate-100">{(log.promptTokens + log.responseTokens).toLocaleString()}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                     <button
+                        onClick={() => handleDownload(log)}
+                        disabled={!isDownloadable(log)}
+                        className="p-1.5 rounded-full text-slate-500 disabled:text-slate-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed enabled:hover:bg-slate-200 dark:enabled:hover:bg-slate-700"
+                        title={isDownloadable(log) ? "Download Report" : "No report available"}
+                     >
+                        <DownloadIcon className="h-4 w-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
                {userLogs.length === 0 && (
                 <tr>
-                    <td colSpan={5} className="text-center py-8 text-slate-500">No usage logs for this period.</td>
+                    <td colSpan={7} className="text-center py-8 text-slate-500">No usage logs for this period.</td>
                 </tr>
                 )}
             </tbody>
