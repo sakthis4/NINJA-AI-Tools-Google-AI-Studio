@@ -87,11 +87,9 @@ interface EditorViewProps {
     onRegenerate: (assetId: string, modelName: string) => void;
     onExport: (pdfFile: PdfFile) => void;
     model: string;
-    setModel: (m: string) => void;
-    canUsePro: boolean;
 }
 
-const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model, setModel, canUsePro }) => {
+const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAssetUpdate, onAssetDelete, onRegenerate, onExport, model }) => {
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
     const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pdfScale, setPdfScale] = useState(0);
@@ -170,15 +168,6 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                         <p className="text-sm text-gray-500">Folder: {folder.name}</p>
                     </div>
                 </div>
-                 {canUsePro && (
-                     <div className="flex items-center gap-2">
-                         <label className="text-sm font-medium">Model:</label>
-                         <select value={model} onChange={e => setModel(e.target.value)} className="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md p-1 focus:ring-primary-500 focus:border-primary-500">
-                             <option value="gemini-2.5-flash">Flash</option>
-                             <option value="gemini-2.5-pro">Pro</option>
-                         </select>
-                     </div>
-                 )}
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full overflow-hidden">
                 {/* PDF Viewer */}
@@ -469,7 +458,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                 onAssetUpdate={(assetId, field, value) => updateMetadataAsset(pdfFile.id, assetId, { [field]: value })}
                 onAssetDelete={(assetId) => deleteMetadataAsset(pdfFile.id, assetId)}
                 onRegenerate={(assetId, modelName) => handleRegenerateAsset(pdfFile.id, assetId, modelName)} onExport={handleExport}
-                model={selectedModel} setModel={setSelectedModel} canUsePro={currentUser?.canUseProModel || false}
+                model={selectedModel}
             />;
         }
     }
@@ -482,15 +471,6 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">PDF Asset Analyzer</h2>
                 </div>
                  <div className="flex items-center gap-4">
-                    {currentUser?.canUseProModel && (
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium">Model:</label>
-                            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-1.5 focus:ring-primary-500 focus:border-primary-500">
-                                <option value="gemini-2.5-flash">Flash (Fast)</option>
-                                <option value="gemini-2.5-pro">Pro (Advanced)</option>
-                            </select>
-                        </div>
-                     )}
                     <button onClick={() => setCreateFolderModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>New Folder</button>
                 </div>
             </div>

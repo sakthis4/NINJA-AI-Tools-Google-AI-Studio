@@ -246,15 +246,6 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Generator</h2>
                 </div>
-                 {currentUser?.canUseProModel && (
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium">Model:</label>
-                        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-1.5 focus:ring-indigo-500 focus:border-indigo-500">
-                            <option value="gemini-2.5-flash">Flash (Fast)</option>
-                            <option value="gemini-2.5-pro">Pro (Advanced)</option>
-                        </select>
-                    </div>
-                 )}
             </div>
             
             <div className="flex-grow overflow-hidden">

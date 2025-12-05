@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -55,7 +56,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [newProfileName, setNewProfileName] = useState('');
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
-    const [selectedModel, setSelectedModel] = useState('gemini-2.5-pro');
+    const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-2.5-pro' : 'gemini-2.5-flash');
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -186,15 +187,6 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <p className="text-sm text-slate-500">A two-step process to configure rules and check manuscripts.</p>
                     </div>
                 </div>
-                {currentUser?.canUseProModel && (
-                     <div className="flex items-center gap-2">
-                         <label className="text-sm font-medium">Model:</label>
-                         <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md p-1.5 focus:ring-purple-500 focus:border-purple-500">
-                             <option value="gemini-2.5-flash">Flash (Fast)</option>
-                             <option value="gemini-2.5-pro">Pro (Advanced)</option>
-                         </select>
-                     </div>
-                 )}
             </div>
             
             <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
@@ -234,7 +226,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                 <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check manuscripts for compliance.</p>
                             </div>
                          ) : (
-                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}}/>)
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
                          )}
                     </section>
                 )}
@@ -311,7 +303,7 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
     );
 };
 
-const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete }) => (
+const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadLog }) => (
     <div className="bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md">
         <div className="flex justify-between items-center">
             <p className="text-sm truncate flex-1">{manuscript.name}</p>
@@ -319,6 +311,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
                 <ManuscriptStatusIndicator status={manuscript.status} />
                 {manuscript.status === 'completed' && <button onClick={() => onViewReport(manuscript)} className="text-xs text-sky-500 hover:underline">Report</button>}
                 <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><ClipboardListIcon className="h-4 w-4"/></button>
+                {manuscript.status === 'completed' && <button onClick={() => onDownloadLog(manuscript)} title="Download Report" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><DownloadIcon className="h-4 w-4"/></button>}
                 <button onClick={() => onManuscriptDelete(manuscript.id)} className="text-slate-400 hover:text-red-500"><XIcon className="h-4 w-4"/></button>
             </div>
         </div>
@@ -326,7 +319,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
     </div>
 );
 
-const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs }) => {
+const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
@@ -335,7 +328,7 @@ const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[
                 <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
             </button>
             {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} />)}</div>
+                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadLog={onDownloadLog} />)}</div>
                 <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />

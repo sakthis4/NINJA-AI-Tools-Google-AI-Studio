@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -88,7 +89,6 @@ export default function UsageDashboard() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Tool Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Model Used</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Prompt Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Response Tokens</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Total</th>
@@ -99,9 +99,6 @@ export default function UsageDashboard() {
                 <tr key={log.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-slate-100">{new Date(log.timestamp).toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.toolName}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">
-                    <code className="text-xs bg-slate-200 dark:bg-slate-600 p-1 rounded">{log.modelName}</code>
-                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.promptTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{log.responseTokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-slate-100">{(log.promptTokens + log.responseTokens).toLocaleString()}</td>
@@ -109,7 +106,7 @@ export default function UsageDashboard() {
               ))}
                {userLogs.length === 0 && (
                 <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">No usage logs for this period.</td>
+                    <td colSpan={5} className="text-center py-8 text-slate-500">No usage logs for this period.</td>
                 </tr>
                 )}
             </tbody>
