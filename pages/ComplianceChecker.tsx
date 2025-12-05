@@ -9,7 +9,7 @@ import {
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { performComplianceCheck } from '../services/geminiService';
+import { performComplianceCheck } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
     ProjectFolder, ManuscriptFile, ManuscriptStatus

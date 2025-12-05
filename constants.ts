@@ -83,7 +83,7 @@ export const HELP_CONTENT = {
         },
         {
             title: 'Token Transparency',
-            content: 'Each extraction consumes tokens from your monthly cap. The number of tokens used is shown after the extraction and is tracked in your Usage Dashboard. Token usage is based on Gemini API billing: prompt + response tokens.'
+            content: 'Each extraction consumes tokens from your monthly cap. The number of tokens used is shown after the extraction and is tracked in your Usage Dashboard. Token usage is based on the AI provider billing: prompt + response tokens.'
         },
         {
             title: 'Exporting Your Data',

@@ -1,9 +1,8 @@
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset, BoundingBox, MetadataProjectFolder, PdfFile, PdfFileStatus } from '../types';
 import { useAppContext } from '../hooks/useAppContext';
-import { extractAssetsFromPage, generateMetadataForCroppedImage } from '../services/geminiService';
+import { extractAssetsFromPage, generateMetadataForCroppedImage } from '../services/aiService';
 import Spinner from '../components/Spinner';
 import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, ChevronDownIcon, XIcon, CursorClickIcon, ExclamationIcon, FolderIcon, DocumentTextIcon, PlusCircleIcon, ClipboardListIcon, ShieldCheckIcon, CheckIcon } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -416,7 +415,6 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 };
 
 // --- Main Dashboard Component ---
-// Fix: Converted MetadataExtractor to a named export to address the "no default export" error.
 export const MetadataExtractor = ({ onBack }: { onBack: () => void }) => {
     const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createMetadataFolderAndAddPdfs } = useAppContext();
     const folders = currentUserData?.metadataFolders || [];

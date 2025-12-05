@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset } from '../types';
 import { useAppContext } from '../hooks/useAppContext';
-import { generateMetadataForImage } from '../services/geminiService';
+import { generateMetadataForImage } from '../services/aiService';
 import Spinner from '../components/Spinner';
 import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, XIcon, ExclamationIcon, ShieldCheckIcon } from '../components/icons/Icons';
 
@@ -73,7 +73,6 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'error', error: errorMessage } : a));
             }
-            // FIX: The promise resolver for Promise<void> should be called without arguments.
             if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
         }
 

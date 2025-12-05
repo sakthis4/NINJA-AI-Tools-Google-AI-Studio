@@ -24,7 +24,7 @@ const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, languag
     );
 };
 
-const ApiSection: React.FC<{ title: string, useCase: string, instructions: string[], model: string, nodeExample: string, schema: string }> = ({ title, useCase, instructions, model, nodeExample, schema }) => (
+const ApiSection: React.FC<{ title: string, useCase: string, instructions: string[], apiExample: string, schema: string }> = ({ title, useCase, instructions, apiExample, schema }) => (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
         <p className="text-sm font-medium text-gray-500 dark:text-gray-300 italic mb-4">{useCase}</p>
@@ -34,12 +34,8 @@ const ApiSection: React.FC<{ title: string, useCase: string, instructions: strin
             {instructions.map((step, i) => <li key={i}>{step}</li>)}
         </ol>
 
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            <strong>Recommended Model:</strong> <code className="text-xs bg-gray-200 dark:bg-gray-700 p-1 rounded">{model}</code>
-        </p>
-
-        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Node.js Example (@google/genai)</h4>
-        <CodeBlock code={nodeExample} language="javascript" />
+        <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Example API Request</h4>
+        <CodeBlock code={apiExample} language="bash" />
 
         <h4 className="font-semibold mt-6 mb-2 text-gray-800 dark:text-gray-200">Expected JSON Response Schema</h4>
         <CodeBlock code={schema} language="json" />
@@ -47,40 +43,13 @@ const ApiSection: React.FC<{ title: string, useCase: string, instructions: strin
 );
 
 export default function ApiIntegration() {
-    const extractorNodeJs = `import { GoogleGenAI, Type } from '@google/genai';
-import fs from 'fs';
-
-// Use your API key from an environment variable
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// Schema for the expected response
-const PAGE_METADATA_SCHEMA = { /* ... see schema below ... */ };
-
-async function extractMetadataFromPage(imagePath) {
-  try {
-    const imageBase64 = fs.readFileSync(imagePath, { encoding: 'base64' });
-    const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
-    const textPart = { text: "Analyze this page image. Find all assets and extract their metadata according to the schema." };
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: { parts: [imagePart, textPart] },
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: PAGE_METADATA_SCHEMA,
-        },
-    });
-
-    const parsedData = JSON.parse(response.text);
-    console.log(JSON.stringify(parsedData, null, 2));
-    return parsedData;
-
-  } catch (error) {
-    console.error("API call failed:", error);
-  }
-}
-
-extractMetadataFromPage('path/to/your/page-image.jpg');`;
+    const extractorApiExample = `curl -X POST https://your-backend.com/api/extract-metadata \\
+     -H "Authorization: Bearer YOUR_API_KEY" \\
+     -H "Content-Type: application/json" \\
+     -d '{
+       "page_image_base64": "...",
+       "prompt": "Analyze this page image. Find all assets and extract their metadata according to the schema."
+     }'`;
     
     const extractorSchema = `{
   "type": "ARRAY",
@@ -107,44 +76,13 @@ extractMetadataFromPage('path/to/your/page-image.jpg');`;
   }
 }`;
 
-    const complianceNodeJs = `import { GoogleGenAI, Type } from '@google/genai';
-
-// Use your API key from an environment variable
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// Schema for the expected response
-const COMPLIANCE_SCHEMA = { /* ... see schema below ... */ };
-
-async function checkCompliance(manuscriptText, rulesText) {
-  const prompt = \`
-    You are a meticulous compliance editor. Compare the 'MANUSCRIPT CHUNK' against the 'RULES DOCUMENT'.
-    For every rule you can verify based *only* on the chunk, provide a finding according to the JSON schema.
-    MANUSCRIPT CHUNK: \${manuscriptText}
-    RULES DOCUMENT TEXT: \${rulesText}
-  \`;
-
-  try {
-    const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: COMPLIANCE_SCHEMA,
-        },
-    });
-
-    const parsedData = JSON.parse(response.text);
-    console.log(JSON.stringify(parsedData, null, 2));
-    return parsedData;
-
-  } catch (error) {
-    console.error("API call failed:", error);
-  }
-}
-
-const manuscriptChunk = "[Page 1] The title of this paper is not in sentence case...";
-const rulesDocument = "Rule 1.1: All titles must be in sentence case.";
-checkCompliance(manuscriptChunk, rulesDocument);`;
+    const complianceApiExample = `curl -X POST https://your-backend.com/api/check-compliance \\
+     -H "Authorization: Bearer YOUR_API_KEY" \\
+     -H "Content-Type: application/json" \\
+     -d '{
+       "manuscript_chunk": "[Page 1] The title...",
+       "rules_document": "Rule 1.1: All titles must be in sentence case."
+     }'`;
 
     const complianceSchema = `{
   "type": "ARRAY",
@@ -167,7 +105,7 @@ checkCompliance(manuscriptChunk, rulesDocument);`;
 
     return (
         <div className="animate-fade-in">
-            <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-white">API Integration Guide</h2>
+            <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-white">Service Integration Guide</h2>
             <p className="mb-6 text-gray-600 dark:text-gray-400">
                 Integrate the core functionalities of this application directly into your own services, such as a Content Management System (CMS) or an automated publishing pipeline.
             </p>
@@ -182,27 +120,22 @@ checkCompliance(manuscriptChunk, rulesDocument);`;
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">1. Authentication</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                    All API requests must be authenticated with a Google Gemini API key. Obtain your key from Google AI Studio.
-                    Your API key should be treated as a secret and stored securely in an environment variable on your server.
-                    <strong className="text-red-500"> Never expose your API key in client-side code.</strong>
+                    All API requests to your backend service must be authenticated with an API key. This key should be provided by your administrator.
+                    Your backend will then use its own securely stored API key to communicate with the underlying AI service.
+                    <strong className="text-red-500"> Never expose your service or AI provider API keys in client-side code.</strong>
                 </p>
-                <CodeBlock code={`// Example for Node.js
-const { GoogleGenAI } = require('@google/genai');
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });`} language="javascript" />
             </div>
 
             <ApiSection
                 title="2. Endpoint: Metadata Extraction"
                 useCase="Use Case: Automatically enrich assets with metadata upon upload to your Digital Asset Management (DAM) system."
                 instructions={[
-                    "Convert each page of your source PDF into a JPEG image.",
-                    "For each page image, convert it to a base64-encoded string.",
-                    "Send the base64 string and the text prompt to the Gemini API as shown in the example.",
-                    "Parse the JSON response, which will be an array of asset objects found on that page.",
+                    "On your backend, create an endpoint (e.g., /api/extract-metadata).",
+                    "Convert each page of your source PDF into a JPEG image and send it as a base64-encoded string in the request body.",
+                    "Your backend service will forward this to the AI API, receive the structured JSON, and return it to your application.",
                     "Store the extracted metadata alongside your asset in your system."
                 ]}
-                model="gemini-2.5-flash"
-                nodeExample={extractorNodeJs}
+                apiExample={extractorApiExample}
                 schema={extractorSchema}
             />
 
@@ -210,23 +143,21 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });`} language="javascr
                 title="3. Endpoint: Compliance Checking"
                 useCase="Use Case: Integrate an automated pre-flight check into your manuscript submission portal to provide authors with instant feedback."
                 instructions={[
-                    "Extract the full text content from the author's manuscript PDF.",
-                    "Concatenate the text content of all your rule documents into a single string.",
+                    "On your backend, create an endpoint (e.g., /api/check-compliance).",
+                    "Extract the full text from the manuscript and your rule documents.",
                     "For large manuscripts, split the text into smaller chunks (e.g., 20-25 pages of text per chunk) to ensure reliable processing.",
-                    "For each chunk, construct a prompt containing both the manuscript chunk and the full rules text, then send it to the Gemini API.",
-                    "Combine the JSON array responses from all chunks to build the complete compliance report."
+                    "For each chunk, send a request to your endpoint containing both the manuscript chunk and the full rules text.",
+                    "Your backend will call the AI service and return the JSON findings, which you can then aggregate to build the complete report."
                 ]}
-                // FIX: Updated model from gemini-2.5-pro to gemini-3-pro-preview for complex reasoning tasks.
-                model="gemini-3-pro-preview"
-                nodeExample={complianceNodeJs}
+                apiExample={complianceApiExample}
                 schema={complianceSchema}
             />
 
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">4. Best Practices: Rate Limiting</h3>
                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    The Gemini API has rate limits to ensure fair usage. If you plan to process many documents in batches, it's crucial to handle potential rate limit errors (HTTP 429).
-                    Implement a retry mechanism with exponential backoff in your server-side code to gracefully handle these situations and ensure your processing jobs complete successfully. The application's internal `geminiService.ts` contains an example of such a retry mechanism.
+                    The underlying AI service has rate limits. If you plan to process many documents in batches, it's crucial to handle potential rate limit errors (HTTP 429) and server availability errors (HTTP 503).
+                    Implement a retry mechanism with exponential backoff in your backend service to gracefully handle these situations and ensure your processing jobs complete successfully.
                 </p>
             </div>
         </div>

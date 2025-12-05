@@ -9,7 +9,7 @@ import {
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { analyzeManuscript } from '../services/geminiService';
+import { analyzeManuscript } from '../services/aiService';
 import {
     ManuscriptIssue, ManuscriptIssuePriority, ProjectFolder, ManuscriptFile, ManuscriptStatus
 } from '../types';
