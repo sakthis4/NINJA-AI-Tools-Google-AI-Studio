@@ -35,7 +35,7 @@ export default function App() {
     return (
         <>
             <LoginPage />
-            <footer className="fixed bottom-0 w-full p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <footer className="fixed bottom-0 w-full p-3 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 flex justify-between items-center">
                 <StatusBar />
                 <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>
             </footer>
@@ -59,14 +59,14 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-900 text-gray-800 dark:text-gray-200">
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
           {renderView()}
         </main>
-        <footer className="flex-shrink-0 p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+        <footer className="flex-shrink-0 p-3 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 flex justify-between items-center">
             <StatusBar />
             <span className="text-xs text-gray-500 dark:text-gray-400">&copy; 2025 S4Carlisle Publishing Services Private Limited</span>
         </footer>

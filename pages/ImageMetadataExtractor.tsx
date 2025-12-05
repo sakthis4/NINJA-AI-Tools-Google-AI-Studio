@@ -78,7 +78,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
         }
 
-        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Extractor', modelName: selectedModel });
+        addUsageLog({ userId: currentUser.id, toolName: 'Image Metadata Generator', modelName: selectedModel });
         setStatus('done');
         setStatusBarMessage(`Processing complete.`, 'success');
         if (imageAssets.length > 0 && !selectedAssetId) {
@@ -244,7 +244,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                  <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Extractor</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Generator</h2>
                 </div>
                  {currentUser?.canUseProModel && (
                     <div className="flex items-center gap-2">

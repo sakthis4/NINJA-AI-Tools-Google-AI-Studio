@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -68,11 +67,15 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
         setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
-        const newRuleFileEntries = await Promise.all(acceptedFiles.map(async (file) => {
+        // FIX: The inline return type annotation was causing a TypeScript error.
+        // By explicitly typing the promises array, we can ensure type safety and avoid inference issues.
+        const promises: Promise<[string, RuleFile]>[] = acceptedFiles.map(async (file) => {
             const id = Math.random().toString(36).substring(2, 9);
             const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-            return [id, { id, name: file.name, textContent: await extractTextFromPdf(pdf) }];
-        }));
+            const textContent = await extractTextFromPdf(pdf);
+            return [id, { id, name: file.name, textContent }];
+        });
+        const newRuleFileEntries = await Promise.all(promises);
         addRuleFilesToProfile(profileId, Object.fromEntries(newRuleFileEntries));
         setStatusBarMessage(`Added ${acceptedFiles.length} rule file(s).`, 'success');
     }, [setStatusBarMessage, addRuleFilesToProfile]);
@@ -177,16 +180,19 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     };
 
     return (
-        <div className="animate-fade-in h-full flex flex-col p-4 md:p-6 lg:p-8 bg-gray-100 dark:bg-gray-900">
+        <div className="animate-fade-in h-full flex flex-col p-4 md:p-6 lg:p-8 bg-slate-100 dark:bg-slate-900">
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                 <div className="flex items-center">
-                    <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Compliance Checker</h2>
+                    <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
+                        <p className="text-sm text-slate-500">Create profiles, map them to project folders, and check manuscripts for compliance.</p>
+                    </div>
                 </div>
                 {currentUser?.canUseProModel && (
                      <div className="flex items-center gap-2">
                          <label className="text-sm font-medium">Model:</label>
-                         <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-1.5 focus:ring-purple-500 focus:border-purple-500">
+                         <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md p-1.5 focus:ring-purple-500 focus:border-purple-500">
                              <option value="gemini-2.5-flash">Flash (Fast)</option>
                              <option value="gemini-2.5-pro">Pro (Advanced)</option>
                          </select>
@@ -197,14 +203,14 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <div className="flex-grow overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <section className="space-y-4">
                     <div className="flex justify-between items-center px-2">
-                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">Compliance Profiles</h3>
-                        <button onClick={() => setModal('createProfile')} className="flex items-center px-3 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>Create Profile</button>
+                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-sky-500 to-indigo-500">1. Compliance Profiles</h3>
+                        <button onClick={() => setModal('createProfile')} className="flex items-center px-3 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>Create Profile</button>
                     </div>
                     {profiles.map(p => <ProfileCard key={p.id} profile={p} ruleFiles={ruleFiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[p.id]} onDelete={deleteComplianceProfile} onRuleDelete={(ruleId) => deleteRuleFileFromProfile(p.id, ruleId)} onDrop={(files) => onRulesDrop(files, p.id)} />)}
                 </section>
                 <section className="space-y-4">
                     <div className="flex justify-between items-center px-2">
-                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-500">Project Folders</h3>
+                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-fuchsia-500">2. Project Folders</h3>
                         <button onClick={() => { setSelectedProfileForFolder(profiles[0]?.id || null); setModal('createFolder')}} className="flex items-center px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>Create Folder</button>
                     </div>
                     {folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}}/>)}
@@ -213,41 +219,41 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
             <Modal isOpen={modal === 'createProfile'} onClose={() => setModal(null)} title="Create New Profile">
                 <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
-                    <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., Journal of Clinical Studies" className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600" />
-                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-primary-500 text-white rounded">Create</button></div>
+                    <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., Journal of Clinical Studies" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
+                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
             <Modal isOpen={modal === 'createFolder'} onClose={() => setModal(null)} title="Create New Folder">
                  <form onSubmit={(e) => { e.preventDefault(); if(newFolderName.trim()) { createComplianceFolder(newFolderName.trim(), selectedProfileForFolder); setNewFolderName(''); setSelectedProfileForFolder(null); setModal(null); } }} className="space-y-4">
-                    <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="E.g., October Submissions" className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600" />
-                    <select value={selectedProfileForFolder || ''} onChange={e => setSelectedProfileForFolder(e.target.value || null)} className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600">
+                    <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="E.g., October Submissions" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
+                    <select value={selectedProfileForFolder || ''} onChange={e => setSelectedProfileForFolder(e.target.value || null)} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600">
                         <option value="">No Profile Mapped</option>
                         {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
-                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-purple-500 text-white rounded">Create</button></div>
+                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-purple-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {selectedManuscript?.report?.length === 0 && <p className="text-center text-gray-500">No compliance issues found.</p>}
+                    {selectedManuscript?.report?.length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
                     {selectedManuscript?.report?.map((finding, index) => (
-                        <div key={index} className="bg-gray-900 rounded-lg p-4">
+                        <div key={index} className="bg-slate-900 rounded-lg p-4">
                            <div className="flex items-start justify-between gap-4">
-                                <h4 className="font-semibold text-lg mb-2 text-gray-200 flex-1">{finding.checkCategory}</h4>{renderStatusIcon(finding.status)}
+                                <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.checkCategory}</h4>{renderStatusIcon(finding.status)}
                            </div>
-                           <p className="text-sm text-gray-400 italic mb-4">"{finding.summary}"</p>
+                           <p className="text-sm text-slate-400 italic mb-4">"{finding.summary}"</p>
                            <div className="space-y-3 text-sm">
-                                <p><strong className="font-medium text-cyan-400">Recommendation:</strong> <span className="text-gray-300">{finding.recommendation}</span></p>
-                                <p><strong className="font-medium text-cyan-400">Manuscript (p. {finding.manuscriptPage}):</strong> <span className="text-gray-300 italic">"{finding.manuscriptQuote}"</span></p>
-                                <p><strong className="font-medium text-cyan-400">Rule (p. {finding.rulePage}):</strong> <span className="text-gray-300 italic">"{finding.ruleContent}"</span></p>
+                                <p><strong className="font-medium text-cyan-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
+                                <p><strong className="font-medium text-cyan-400">Manuscript (p. {finding.manuscriptPage}):</strong> <span className="text-slate-300 italic">"{finding.manuscriptQuote}"</span></p>
+                                <p><strong className="font-medium text-cyan-400">Rule (p. {finding.rulePage}):</strong> <span className="text-slate-300 italic">"{finding.ruleContent}"</span></p>
                            </div>
                         </div>
                     ))}
-                    <div className="text-center pt-2"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-gray-400 hover:underline">Download Full Log</button></div>
+                    <div className="text-center pt-2"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
                 </div>
             </Modal>
              <Modal isOpen={modal === 'viewLogs' && !!selectedManuscript} onClose={() => setModal(null)} title={`Logs: ${selectedManuscript?.name}`}>
-                <div className="bg-gray-900 text-white font-mono text-xs rounded-md p-4 max-h-96 overflow-y-auto">
+                <div className="bg-slate-900 text-white font-mono text-xs rounded-md p-4 max-h-96 overflow-y-auto">
                     {(selectedManuscript?.logs || []).map((log, index) => <p key={index}>{log}</p>)}
                 </div>
             </Modal>
@@ -258,21 +264,21 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
-            <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left">
-                <div><p className="font-bold text-lg">{profile.name}</p><p className="text-sm text-gray-500">{profile.ruleFileIds.length} rule file(s)</p></div>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden transition-all duration-300">
+            <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{profile.name}</p><p className="text-sm text-slate-500">{profile.ruleFileIds.length} rule file(s)</p></div>
                 <div className="flex items-center space-x-2">
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(profile.id)}} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(profile.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
                     <ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
                 </div>
             </button>
-            {isExpanded && <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
-                {profile.ruleFileIds.map(id => (<div key={id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md"><p className="text-sm truncate">{ruleFiles[id]?.name}</p><button onClick={() => onRuleDelete(id)} className="text-gray-400 hover:text-red-500 ml-2"><XIcon className="h-4 w-4"/></button></div>))}
-                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary-500">
+            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                {profile.ruleFileIds.map(id => (<div key={id} className="flex justify-between items-center bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md"><p className="text-sm truncate">{ruleFiles[id]?.name}</p><button onClick={() => onRuleDelete(id)} className="text-slate-400 hover:text-red-500 ml-2"><XIcon className="h-4 w-4"/></button></div>))}
+                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                     <input {...getInputProps()} />
-                    <UploadIcon className="h-8 w-8 mx-auto text-gray-400" />
+                    <UploadIcon className="h-8 w-8 mx-auto" />
                     <p className="mt-2 text-sm">Add Rule Document(s)</p>
-                    <div className="mt-2 flex items-center justify-center text-xs text-gray-500">
+                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>
                     </div>
@@ -283,35 +289,35 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
 };
 
 const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete }) => (
-    <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-md">
+    <div className="bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md">
         <div className="flex justify-between items-center">
             <p className="text-sm truncate flex-1">{manuscript.name}</p>
             <div className="flex items-center space-x-3 ml-4">
                 <ManuscriptStatusIndicator status={manuscript.status} />
-                {manuscript.status === 'completed' && <button onClick={() => onViewReport(manuscript)} className="text-xs text-primary-500 hover:underline">Report</button>}
-                <button onClick={() => onViewLogs(manuscript)} title="View Logs"><ClipboardListIcon className="h-4 w-4"/></button>
-                <button onClick={() => onManuscriptDelete(manuscript.id)}><XIcon className="h-4 w-4"/></button>
+                {manuscript.status === 'completed' && <button onClick={() => onViewReport(manuscript)} className="text-xs text-sky-500 hover:underline">Report</button>}
+                <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><ClipboardListIcon className="h-4 w-4"/></button>
+                <button onClick={() => onManuscriptDelete(manuscript.id)} className="text-slate-400 hover:text-red-500"><XIcon className="h-4 w-4"/></button>
             </div>
         </div>
-        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
+        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
     </div>
 );
 
 const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (
-         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-            <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left">
-                <div><p className="font-bold text-lg">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-gray-100 dark:bg-gray-700 border rounded p-1"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
-                <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
+         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
+            <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-slate-100 dark:bg-slate-700 border rounded-md p-1 focus:ring-purple-500 focus:border-purple-500"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
+                <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
             </button>
-            {isExpanded && <div className="p-4 border-t">
+            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
                 <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} />)}</div>
-                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500">
+                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors">
                     <input {...getInputProps()} />
-                    <UploadIcon className="h-8 w-8 mx-auto text-gray-400" />
+                    <UploadIcon className="h-8 w-8 mx-auto" />
                     <p className="mt-2 text-sm">Upload Manuscripts</p>
-                    <div className="mt-2 flex items-center justify-center text-xs text-gray-500">
+                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>
                     </div>

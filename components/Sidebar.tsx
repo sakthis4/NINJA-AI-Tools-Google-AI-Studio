@@ -21,13 +21,13 @@ const NavLink: React.FC<{
 }> = ({ id, label, icon: Icon, isCollapsed, isActive, onClick }) => (
     <button
       onClick={onClick}
-      className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-200 ${
+      className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 group ${
         isActive
-          ? 'bg-primary-500 text-white'
-          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+          ? 'bg-sky-500/20 text-sky-500'
+          : 'text-slate-500 dark:text-slate-400 hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400'
       } ${isCollapsed ? 'justify-center' : ''}`}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className={`h-5 w-5 transition-colors ${isActive ? 'text-sky-500' : 'text-slate-400 group-hover:text-sky-500'}`} />
       {!isCollapsed && <span className="ml-3">{label}</span>}
     </button>
   );
@@ -48,7 +48,7 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
   const sidebarContent = (
     <>
       <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} px-4 py-5`}>
-        {!isCollapsed && <h1 className="text-xl font-bold text-gray-800 dark:text-white">AI Tools</h1>}
+        {!isCollapsed && <h1 className="text-xl font-bold text-slate-800 dark:text-white">S4-AI</h1>}
       </div>
       <nav className="flex-1 px-2 space-y-2">
         {navItems.filter(item => item.visible).map(item => (
@@ -69,9 +69,9 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
       <div className="px-2 pb-4">
         <button
           onClick={() => setHelpOpen(true)}
-          className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-200 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 ${isCollapsed ? 'justify-center' : ''}`}
+          className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-200 group text-slate-500 dark:text-slate-400 hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400 ${isCollapsed ? 'justify-center' : ''}`}
         >
-          <HelpIcon className="h-5 w-5" />
+          <HelpIcon className="h-5 w-5 text-slate-400 group-hover:text-sky-500" />
           {!isCollapsed && <span className="ml-3">Usage Instructions</span>}
         </button>
       </div>
@@ -81,15 +81,15 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
   return (
     <>
       {/* Mobile Menu Button */}
-      <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-4 fixed top-4 left-4 z-20 bg-white dark:bg-gray-800 rounded-full shadow-lg">
-        <MenuIcon className="h-6 w-6 text-gray-800 dark:text-white" />
+      <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-4 fixed top-4 left-4 z-20 bg-white dark:bg-slate-800 rounded-full shadow-lg">
+        <MenuIcon className="h-6 w-6 text-slate-800 dark:text-white" />
       </button>
 
       {/* Mobile Sidebar */}
       <div className={`fixed inset-0 z-30 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out md:hidden`}>
         <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)}></div>
-        <div className="relative flex flex-col w-64 h-full bg-white dark:bg-gray-800 shadow-xl">
-          <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 text-gray-500 dark:text-gray-400">
+        <div className="relative flex flex-col w-64 h-full bg-slate-50 dark:bg-slate-800 shadow-xl">
+          <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 text-slate-500 dark:text-slate-400">
             <XIcon className="h-6 w-6" />
           </button>
           {sidebarContent}
@@ -97,18 +97,18 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
       </div>
       
       {/* Desktop Sidebar */}
-      <aside className={`relative hidden md:flex flex-col bg-white dark:bg-gray-800 shadow-lg transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
-        <button onClick={() => setIsCollapsed(!isCollapsed)} className="absolute -right-3 top-10 z-10 bg-white dark:bg-gray-700 p-1.5 rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600">
+      <aside className={`relative hidden md:flex flex-col bg-slate-50 dark:bg-slate-800 shadow-lg transition-all duration-300 border-r border-slate-200 dark:border-slate-700 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+        <button onClick={() => setIsCollapsed(!isCollapsed)} className="absolute -right-3 top-10 z-10 bg-white dark:bg-slate-700 p-1.5 rounded-full border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600">
           <ChevronLeftIcon className={`h-4 w-4 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`} />
         </button>
         {sidebarContent}
       </aside>
 
       <Modal isOpen={isHelpOpen} onClose={() => setHelpOpen(false)} title={HELP_CONTENT.title}>
-        <div className="space-y-4 text-sm text-gray-600 dark:text-gray-300">
+        <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
           {HELP_CONTENT.sections.map(section => (
             <div key={section.title}>
-              <h4 className="font-semibold text-gray-800 dark:text-gray-100 mb-1">{section.title}</h4>
+              <h4 className="font-semibold text-slate-800 dark:text-slate-100 mb-1">{section.title}</h4>
               <p>{section.content}</p>
             </div>
           ))}

@@ -40,7 +40,7 @@ export const USAGE_LOGS: UsageLog[] = [
     {
         id: 'log1',
         userId: 1,
-        toolName: 'Metadata Extractor',
+        toolName: 'PDF Asset Analyzer',
         modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-27T10:05:00Z',
         promptTokens: 2500,
@@ -49,7 +49,7 @@ export const USAGE_LOGS: UsageLog[] = [
     {
         id: 'log2',
         userId: 2,
-        toolName: 'Metadata Extractor',
+        toolName: 'PDF Asset Analyzer',
         modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-27T12:35:00Z',
         promptTokens: 8000,
@@ -58,7 +58,7 @@ export const USAGE_LOGS: UsageLog[] = [
     {
         id: 'log3',
         userId: 2,
-        toolName: 'Metadata Extractor',
+        toolName: 'PDF Asset Analyzer',
         modelName: 'gemini-2.5-flash',
         timestamp: '2023-10-26T11:00:00Z',
         promptTokens: 15000,

@@ -375,7 +375,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
                 
                 updatePdfFile(pdfId, { status: hasErrors ? 'error' : 'completed', assets: allAssets, progress: 100 });
                 addLog(pdfId, `Processing finished ${hasErrors ? 'with errors' : 'successfully'}.`);
-                addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor', modelName: selectedModel });
+                addUsageLog({ userId: currentUser!.id, toolName: 'PDF Asset Analyzer', modelName: selectedModel });
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "Fatal processing failed";
                 addLog(pdfId, `FATAL ERROR: ${errorMessage}`);
@@ -426,7 +426,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             updateMetadataAsset(pdfId, assetId, { ...newMetadata, assetId: newMetadata.assetId || asset.assetId });
 
             setStatusBarMessage(`Successfully regenerated metadata for ${asset.assetId}.`, 'success');
-            addUsageLog({ userId: currentUser!.id, toolName: 'Metadata Extractor (Regen)', modelName: modelName });
+            addUsageLog({ userId: currentUser!.id, toolName: 'PDF Asset Analyzer (Regen)', modelName: modelName });
         } catch (error) {
             console.error("Regeneration failed:", error);
             setStatusBarMessage(`Regeneration failed: ${error instanceof Error ? error.message : "Unknown"}`, 'error');
@@ -479,7 +479,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Metadata Extractor</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">PDF Asset Analyzer</h2>
                 </div>
                  <div className="flex items-center gap-4">
                     {currentUser?.canUseProModel && (
