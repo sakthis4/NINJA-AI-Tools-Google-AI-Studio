@@ -1,11 +1,13 @@
+
 import React, { useState } from 'react';
-import MetadataExtractor from './MetadataExtractor';
+import { MetadataExtractor } from './MetadataExtractor';
 import ImageMetadataExtractor from './ImageMetadataExtractor';
 import ComplianceChecker from './ComplianceChecker';
-import { SparklesIcon, PhotographIcon, ComplianceIcon } from '../components/icons/Icons';
+import { SparklesIcon, PhotographIcon, ComplianceIcon, ManuscriptCheckIcon } from '../components/icons/Icons';
+import ManuscriptAnalyzer from './ManuscriptAnalyzer';
 
 export default function Tools() {
-  const [activeTool, setActiveTool] = useState<'pdf' | 'image' | 'compliance' | null>(null);
+  const [activeTool, setActiveTool] = useState<'pdf' | 'image' | 'compliance' | 'manuscript-analyzer' | null>(null);
 
   if (activeTool === 'pdf') {
     return (
@@ -27,6 +29,14 @@ export default function Tools() {
     return (
       <div className="-m-4 md:-m-6 lg:-m-8 h-[calc(100%+2rem)] md:h-[calc(100%+3rem)] lg:h-[calc(100%+4rem)]">
         <ComplianceChecker onBack={() => setActiveTool(null)} />
+      </div>
+    );
+  }
+
+  if (activeTool === 'manuscript-analyzer') {
+    return (
+      <div className="-m-4 md:-m-6 lg:-m-8 h-[calc(100%+2rem)] md:h-[calc(100%+3rem)] lg:h-[calc(100%+4rem)]">
+        <ManuscriptAnalyzer onBack={() => setActiveTool(null)} />
       </div>
     );
   }
@@ -103,6 +113,29 @@ export default function Tools() {
             </button>
           </div>
         </div>
+
+        {/* Manuscript Analyzer Card */}
+        <div className="group relative bg-white dark:bg-slate-800 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1">
+          <div className="absolute -top-12 -right-12 w-40 h-40 bg-teal-500/20 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
+          <div className="p-6 flex flex-col justify-between h-full relative">
+            <div>
+              <div className="p-3 bg-teal-100 dark:bg-teal-900/50 rounded-lg inline-block mb-4">
+                <ManuscriptCheckIcon className="h-8 w-8 text-teal-500" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Manuscript Analyzer</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 mb-6">
+                Checks manuscript for grammar, integrity, and plagiarism concerns. Provides a detailed report with actionable recommendations.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveTool('manuscript-analyzer')}
+              className="w-full bg-teal-500 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 dark:focus:ring-offset-slate-800 transition-colors duration-300"
+            >
+              Launch Tool
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   );

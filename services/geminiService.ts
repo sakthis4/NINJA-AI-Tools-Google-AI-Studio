@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -98,6 +99,22 @@ const COMPLIANCE_SCHEMA = {
             recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to address the issue to become compliant.' }
         },
         required: ['checkCategory', 'status', 'summary', 'manuscriptQuote', 'manuscriptPage', 'ruleContent', 'rulePage', 'recommendation']
+    }
+};
+
+const MANUSCRIPT_ANALYSIS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            issueCategory: { type: Type.STRING, enum: ['Grammar', 'Plagiarism Concern', 'Structural Integrity', 'Clarity', 'Ethical Concern', 'Spelling'], description: 'The category of the issue found.' },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. High priority issues are critical and must be addressed.' },
+            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
+            quote: { type: Type.STRING, description: 'The exact, brief quote from the manuscript where the issue occurs.' },
+            pageNumber: { type: Type.NUMBER, description: 'The page number in the manuscript where the quote is found.' },
+            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
+        },
+        required: ['issueCategory', 'priority', 'summary', 'quote', 'pageNumber', 'recommendation']
     }
 };
 
@@ -241,5 +258,46 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
     } catch (error) {
         console.error("Error calling Gemini API for compliance check:", error);
         throw new Error("Failed to perform compliance check with Gemini API.");
+    }
+}
+
+export async function analyzeManuscript(manuscriptText: string, modelName: string): Promise<ManuscriptIssue[]> {
+    const prompt = `
+        You are an expert manuscript editor for a top-tier academic publisher. Your task is to perform a detailed analysis of the provided 'MANUSCRIPT CHUNK'.
+        Your analysis must cover the following areas:
+        1.  **Grammar and Spelling:** Identify and report all grammatical errors, typos, and awkward phrasing.
+        2.  **Clarity and Flow:** Check for unclear sentences, logical inconsistencies, and poor structural flow.
+        3.  **Structural Integrity:** Verify that the manuscript follows a logical structure (e.g., Introduction, Methods, Results, Discussion). Check for issues like missing sections or arguments that do not connect.
+        4.  **Ethical Concerns:** Flag potential ethical issues, such as the lack of a patient consent statement in a medical study or indications of data manipulation.
+        5.  **Plagiarism Concern:** Identify any sentences or paragraphs that are highly unoriginal, use overly complex but generic language, or are phrased in a way that strongly suggests they were copied from another source without proper attribution. You cannot perform a database search, but you can use your knowledge to flag text that is suspicious.
+
+        For every issue you identify, provide a finding according to the provided JSON schema. Order your findings by priority, with 'High' priority items first.
+        - **High Priority:** Critical errors that would prevent publication (e.g., plagiarism concerns, major ethical flags, incomprehensible grammar).
+        - **Medium Priority:** Significant issues that harm readability or professionalism (e.g., structural problems, persistent grammatical errors).
+        - **Low Priority:** Minor issues like typos or occasional awkward phrasing.
+
+        MANUSCRIPT CHUNK:
+        ${manuscriptText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: MANUSCRIPT_ANALYSIS_SCHEMA,
+            },
+        }));
+        const jsonText = response.text.trim();
+        const parsedJson = JSON.parse(jsonText);
+        if (!Array.isArray(parsedJson)) {
+            console.warn("API returned non-array for manuscript analysis, returning empty array.", parsedJson);
+            return [];
+        }
+        return parsedJson;
+    } catch (error) {
+        console.error("Error calling Gemini API for manuscript analysis:", error);
+        throw new Error("Failed to perform manuscript analysis with Gemini API.");
     }
 }

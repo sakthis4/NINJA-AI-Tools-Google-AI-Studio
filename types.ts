@@ -95,6 +95,17 @@ export type ComplianceReport = ComplianceItem[];
 // Types for the new folder-based Compliance Checker
 export type ManuscriptStatus = 'queued' | 'processing' | 'completed' | 'error';
 
+export type ManuscriptIssuePriority = 'High' | 'Medium' | 'Low';
+
+export interface ManuscriptIssue {
+    issueCategory: 'Grammar' | 'Plagiarism Concern' | 'Structural Integrity' | 'Clarity' | 'Ethical Concern' | 'Spelling';
+    priority: ManuscriptIssuePriority;
+    summary: string;
+    quote: string;
+    pageNumber: number;
+    recommendation: string;
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -112,7 +123,8 @@ export interface ManuscriptFile {
   name: string;
   file?: File; // File is transient and not stored in localStorage
   status: ManuscriptStatus;
-  report?: ComplianceFinding[];
+  complianceReport?: ComplianceFinding[];
+  analysisReport?: ManuscriptIssue[];
   logs?: string[];
   progress?: number;
 }

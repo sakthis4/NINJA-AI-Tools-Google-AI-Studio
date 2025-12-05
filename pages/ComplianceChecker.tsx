@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, InfoIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import { performComplianceCheck } from '../services/geminiService';
@@ -56,7 +56,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [newProfileName, setNewProfileName] = useState('');
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
-    const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-2.5-pro' : 'gemini-2.5-flash');
+    const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -153,7 +153,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     outputId: manuscriptId,
                     outputName: fileObject.name,
                 });
-                updateManuscript(manuscriptId, { status: 'completed', report: allFindings, progress: 100 });
+                updateManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
                 updateManuscript(manuscriptId, { status: 'error' });
@@ -168,7 +168,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const handleDownloadLog = (manuscript: ManuscriptFile) => {
         const fileName = `${manuscript.name}.log.txt`;
         let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
-        (manuscript.report || []).forEach(f => {
+        (manuscript.complianceReport || []).forEach(f => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
         
@@ -254,10 +254,10 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-purple-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
-            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
+            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Compliance Report: ${selectedManuscript?.name}`}>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {selectedManuscript?.report?.length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
-                    {selectedManuscript?.report?.map((finding, index) => (
+                    {selectedManuscript?.complianceReport?.length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
+                    {selectedManuscript?.complianceReport?.map((finding, index) => (
                         <div key={index} className="bg-slate-900 rounded-lg p-4">
                            <div className="flex items-start justify-between gap-4">
                                 <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.checkCategory}</h4>{renderStatusIcon(finding.status)}

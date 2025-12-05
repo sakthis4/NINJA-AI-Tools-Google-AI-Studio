@@ -44,7 +44,8 @@ export default function UsageDashboard() {
             if (manuscript) {
                 const fileName = `${manuscript.name}.log.txt`;
                 let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
-                (manuscript.report || []).forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                // FIX: Property 'report' does not exist on type 'ManuscriptFile'. Changed to 'complianceReport'.
+                (manuscript.complianceReport || []).forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
                 downloadFile(fileName, content, 'text/plain');
             } else { throw new Error('Could not find the original manuscript data.'); }
         } else if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) {

@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset, BoundingBox, MetadataProjectFolder, PdfFile, PdfFileStatus } from '../types';
 import { useAppContext } from '../hooks/useAppContext';
@@ -159,6 +159,11 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
     const [newZone, setNewZone] = useState<{ box: BoundingBox, pageNum: number} | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
 
+    const selectedAsset = useMemo(() => 
+        pdfFile.assets?.find(a => a.id === selectedAssetId),
+        [selectedAssetId, pdfFile.assets]
+    );
+
     const updatePdfDimensions = useCallback(async (pdf: pdfjsLib.PDFDocumentProxy) => {
         if (!viewerRef.current) return;
         await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 0));
@@ -207,13 +212,33 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
     }, [pdfDoc, updatePdfDimensions]);
 
     useEffect(() => {
-        if (selectedAssetId) {
-            const asset = pdfFile.assets?.find(a => a.id === selectedAssetId);
-            if (asset && asset.pageNumber) {
-                pageRefs.current[asset.pageNumber - 1]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (selectedAsset) {
+            // Ensure we have all the necessary elements and data to perform the scroll
+            if (selectedAsset.pageNumber && selectedAsset.boundingBox && viewerRef.current) {
+                const pageElement = pageRefs.current[selectedAsset.pageNumber - 1];
+                if (pageElement) {
+                    const container = viewerRef.current;
+                    // BoundingBox.y is a percentage from the top of the page.
+                    // Calculate the asset's top position in pixels, relative to the top of its page element.
+                    const assetTopInPage = (pageElement.clientHeight * selectedAsset.boundingBox.y) / 100;
+                    
+                    // The target scroll position is the top of the page element plus the asset's position within the page.
+                    // A small margin is subtracted to position the asset slightly below the top of the viewport for better visibility.
+                    const margin = 20; // 20px margin from the top of the viewer
+                    const targetScrollTop = pageElement.offsetTop + assetTopInPage - margin;
+
+                    container.scrollTo({
+                        // Ensure scroll position is not negative
+                        top: Math.max(0, targetScrollTop),
+                        behavior: 'smooth'
+                    });
+                }
+            } else if (selectedAsset.pageNumber) {
+                // Fallback for assets without a bounding box, just scroll the page into view
+                pageRefs.current[selectedAsset.pageNumber - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
-    }, [selectedAssetId, pdfFile.assets]);
+    }, [selectedAsset, pageDimensions]);
 
     const handleZoneCreated = (box: BoundingBox, pageNum: number) => {
         setNewZone({ box, pageNum });
@@ -290,12 +315,16 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                 </div>
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full overflow-hidden">
-                <div ref={viewerRef} className={`overflow-y-auto bg-gray-200 dark:bg-gray-700 p-2 md:p-4 rounded-lg shadow-inner ${isZoningMode ? 'cursor-crosshair' : ''}`}>
+                <div ref={viewerRef} className={`relative overflow-y-auto bg-gray-200 dark:bg-gray-700 p-2 md:p-4 rounded-lg shadow-inner ${isZoningMode ? 'cursor-crosshair' : ''}`}>
                     {pdfDoc && pageDimensions.length > 0 ? pageDimensions.map((dim, index) => (
-                        <div key={`page_${index + 1}`} data-page-index={index}
+                        <div key={`page_${index + 1}`} ref={el => { pageRefs.current[index] = el; }} data-page-index={index}
                              className="relative shadow-lg mb-4 bg-white dark:bg-gray-800 mx-auto"
                              style={{ width: dim.width, height: dim.height }}>
+                            
                             <LazyPdfPage pdfDoc={pdfDoc} pageNum={index + 1} scale={pdfScale} viewerRef={viewerRef} isZoningMode={isZoningMode} onZone={handleZoneCreated}/>
+                            
+                            {/* Highlight box for selected asset removed as per user request */}
+                            
                             {newZone && newZone.pageNum === index + 1 && (
                                 <div className="absolute border-2 border-green-500 bg-green-500/20 pointer-events-none" style={{ left: `${newZone.box.x}%`, top: `${newZone.box.y}%`, width: `${newZone.box.width}%`, height: `${newZone.box.height}%` }}>
                                     <div className="absolute -top-10 right-0 flex items-center space-x-1 pointer-events-auto">
@@ -320,7 +349,7 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                          <div className="flex justify-between items-center">
                             <h3 className="text-base md:text-lg font-semibold">Extracted Assets ({pdfFile.assets?.length || 0})</h3>
                             <div className="flex items-center space-x-2">
-                                <button onClick={() => setIsZoningMode(true)} className={`px-2 py-1.5 text-xs md:text-sm text-white rounded-md inline-flex items-center transition-colors ${isZoningMode ? 'bg-red-500 hover:bg-red-600' : 'bg-primary-500 hover:bg-primary-600'}`}>
+                                <button onClick={() => setIsZoningMode(!isZoningMode)} className={`px-2 py-1.5 text-xs md:text-sm text-white rounded-md inline-flex items-center transition-colors ${isZoningMode ? 'bg-red-500 hover:bg-red-600' : 'bg-primary-500 hover:bg-primary-600'}`}>
                                     {isZoningMode ? <XIcon className="h-4 w-4 mr-1"/> : <CursorClickIcon className="h-4 w-4 mr-1"/>}
                                     {isZoningMode ? 'Cancel' : 'Add Asset'}
                                 </button>
@@ -332,7 +361,7 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
                         {pdfFile.assets && sortAssets([...pdfFile.assets]).map(asset => {
                              const isSelected = selectedAssetId === asset.id;
                              return (
-                                <div key={asset.id} className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border ${isSelected ? 'border-primary-500' : 'border-transparent'}`}>
+                                <div key={asset.id} className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border ${isSelected ? 'border-primary-500 ring-2 ring-primary-500/50' : 'border-transparent'}`}>
                                     <button onClick={() => setSelectedAssetId(isSelected ? null : asset.id)} className="w-full flex items-center justify-between p-4 text-left">
                                         <div className="flex-1 overflow-hidden">
                                             <div className="font-semibold text-gray-800 dark:text-white truncate">{asset.assetId} - <span className="font-normal text-gray-500 dark:text-gray-400">{asset.assetType} on Page {asset.pageNumber}</span></div>
@@ -387,7 +416,8 @@ const EditorView: React.FC<EditorViewProps> = ({ folder, pdfFile, onBack, onAsse
 };
 
 // --- Main Dashboard Component ---
-export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
+// Fix: Converted MetadataExtractor to a named export to address the "no default export" error.
+export const MetadataExtractor = ({ onBack }: { onBack: () => void }) => {
     const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createMetadataFolderAndAddPdfs } = useAppContext();
     const folders = currentUserData?.metadataFolders || [];
 
@@ -646,7 +676,7 @@ export default function MetadataExtractor({ onBack }: { onBack: () => void }) {
             </Modal>
         </div>
     );
-}
+};
 
 const FolderCard: React.FC<{ folder: MetadataProjectFolder, onDrop: (files: File[], folderId: string) => void, onView: (pdfId: string) => void, onDeletePdf: (pdfId: string) => void, onDeleteFolder: () => void, onShowLogs: (pdf: PdfFile) => void }> = ({ folder, onDrop, onView, onDeletePdf, onDeleteFolder, onShowLogs }) => {
     const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop: (files) => onDrop(files, folder.id), accept: { 'application/pdf': ['.pdf'] }, noClick: true });
