@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
 import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue } from '../types';
 
@@ -130,12 +129,17 @@ async function apiCallWithRetry<T>(apiCall: () => Promise<T>): Promise<T> {
             return await apiCall();
         } catch (error: any) {
             attempts++;
-            const isRateLimitError = error.toString().includes('429') || (error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')));
+            // Check for both rate limit (429) and server overload (503 / UNAVAILABLE) errors.
+            const errorString = (error.message || error.toString()).toUpperCase();
+            const isRetriableError = errorString.includes('429') || 
+                                     errorString.includes('RESOURCE_EXHAUSTED') ||
+                                     errorString.includes('503') ||
+                                     errorString.includes('UNAVAILABLE');
             
-            if (attempts < MAX_RETRIES && isRateLimitError) {
-                console.warn(`Rate limit hit. Retrying in ${delay / 1000}s... (Attempt ${attempts}/${MAX_RETRIES})`);
+            if (attempts < MAX_RETRIES && isRetriableError) {
+                console.warn(`Retriable error detected. Retrying in ${delay / 1000}s... (Attempt ${attempts}/${MAX_RETRIES})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 2; 
+                delay *= 2; // Exponential backoff
             } else {
                 console.error("API call failed after multiple retries or with a non-retriable error:", error);
                 throw error;
