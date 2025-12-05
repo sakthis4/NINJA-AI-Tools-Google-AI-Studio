@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { ExtractedAsset } from '../types';
@@ -74,8 +73,8 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 setImageAssets(prev => prev.map(a => a.id === asset.id ? { ...a, status: 'error', error: errorMessage } : a));
             }
-            // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
-            if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1100));
+            // FIX: The promise resolver for Promise<void> should be called without arguments.
+            if (index < assetsToProcess.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
         }
 
         const finalImageAssets = imageAssetsRef.current;

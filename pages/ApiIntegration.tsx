@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 
 const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => {
@@ -126,7 +125,7 @@ async function checkCompliance(manuscriptText, rulesText) {
 
   try {
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: {
             responseMimeType: 'application/json',
@@ -217,7 +216,8 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });`} language="javascr
                     "For each chunk, construct a prompt containing both the manuscript chunk and the full rules text, then send it to the Gemini API.",
                     "Combine the JSON array responses from all chunks to build the complete compliance report."
                 ]}
-                model="gemini-2.5-pro"
+                // FIX: Updated model from gemini-2.5-pro to gemini-3-pro-preview for complex reasoning tasks.
+                model="gemini-3-pro-preview"
                 nodeExample={complianceNodeJs}
                 schema={complianceSchema}
             />

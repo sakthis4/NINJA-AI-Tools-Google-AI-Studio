@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -6,9 +5,10 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, InfoIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 import { performComplianceCheck } from '../services/geminiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
@@ -17,15 +17,37 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
-async function extractTextFromPdf(pdfDoc: pdfjsLib.PDFDocumentProxy): Promise<string> {
-    let fullText = '';
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
+async function extractTextFromFile(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
+            fullText += `[Page ${i}]\n${pageText}\n\n`;
+        }
+        return fullText;
+    } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        // Heuristic to simulate page numbers for Word documents
+        const words = result.value.split(/\s+/);
+        const wordsPerPage = 300; // An average page has about 300 words
+        let fullText = '';
+        let pageCounter = 1;
+        for (let i = 0; i < words.length; i += wordsPerPage) {
+            const chunk = words.slice(i, i + wordsPerPage).join(' ');
+            if (chunk.trim()) {
+                fullText += `[Page ${pageCounter}]\n${chunk}\n\n`;
+                pageCounter++;
+            }
+        }
+        return fullText;
+    } else {
+        throw new Error(`Unsupported file type: ${file.name}. Please upload a PDF or DOCX file.`);
     }
-    return fullText;
 }
 
 const renderStatusIcon = (status: FindingStatus) => {
@@ -69,15 +91,20 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
         setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
-        const promises: Promise<[string, RuleFile]>[] = acceptedFiles.map(async (file): Promise<[string, RuleFile]> => {
-            const id = Math.random().toString(36).substring(2, 9);
-            const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-            const textContent = await extractTextFromPdf(pdf);
-            return [id, { id, name: file.name, textContent }];
-        });
-        const newRuleFileEntries = await Promise.all(promises);
-        addRuleFilesToProfile(profileId, Object.fromEntries(newRuleFileEntries));
-        setStatusBarMessage(`Added ${acceptedFiles.length} rule file(s).`, 'success');
+        const newRuleFileEntries: Record<string, RuleFile> = {};
+        for (const file of acceptedFiles) {
+            try {
+                const textContent = await extractTextFromFile(file);
+                const id = Math.random().toString(36).substring(2, 9);
+                newRuleFileEntries[id] = { id, name: file.name, textContent };
+            } catch (error) {
+                setStatusBarMessage(`Failed to process ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+            }
+        }
+        if (Object.keys(newRuleFileEntries).length > 0) {
+            addRuleFilesToProfile(profileId, newRuleFileEntries);
+            setStatusBarMessage(`Added ${Object.keys(newRuleFileEntries).length} rule file(s).`, 'success');
+        }
     }, [setStatusBarMessage, addRuleFilesToProfile]);
 
     const onManuscriptsDrop = useCallback((acceptedFiles: File[], folderId: string) => {
@@ -120,8 +147,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             addComplianceLog(manuscriptId, "Processing started.");
             try {
                 addComplianceLog(manuscriptId, "Extracting text from manuscript...");
-                const manuscriptDoc = await pdfjsLib.getDocument({ data: new Uint8Array(await fileObject.arrayBuffer()) }).promise;
-                const manuscriptText = await extractTextFromPdf(manuscriptDoc);
+                const manuscriptText = await extractTextFromFile(fileObject);
                 
                 const CHUNK_SIZE_PAGES = 25;
                 const pageChunks = manuscriptText.split(/(?=\[Page \d+\])/g);
@@ -142,7 +168,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             allFindings.push(...reportForChunk);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
-                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1500));
+                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
                 addComplianceLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);
@@ -298,7 +324,7 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
                 <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Add Rule Document(s)</p>
+                    <p className="mt-2 text-sm">Add Rule Document(s) (.pdf)</p>
                     <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>
@@ -335,7 +361,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
 
 
 const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
-    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
+    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
             <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
@@ -347,7 +373,7 @@ const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[
                 <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Upload Manuscripts</p>
+                    <p className="mt-2 text-sm">Upload Manuscripts (.pdf, .docx)</p>
                     <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>

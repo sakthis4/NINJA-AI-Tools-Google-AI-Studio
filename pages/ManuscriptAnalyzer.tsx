@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -9,6 +8,7 @@ import {
     TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, ChevronDownIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 import { analyzeManuscript } from '../services/geminiService';
 import {
     ManuscriptIssue, ManuscriptIssuePriority, ProjectFolder, ManuscriptFile, ManuscriptStatus
@@ -16,15 +16,38 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
-async function extractTextFromPdf(pdfDoc: pdfjsLib.PDFDocumentProxy): Promise<string> {
-    let fullText = '';
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
+// FIX: Updated function to handle both PDF and DOCX files, ensuring consistent text extraction across tools.
+async function extractTextFromFile(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
+            fullText += `[Page ${i}]\n${pageText}\n\n`;
+        }
+        return fullText;
+    } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        // Heuristic to simulate page numbers for Word documents
+        const words = result.value.split(/\s+/);
+        const wordsPerPage = 300; // An average page has about 300 words
+        let fullText = '';
+        let pageCounter = 1;
+        for (let i = 0; i < words.length; i += wordsPerPage) {
+            const chunk = words.slice(i, i + wordsPerPage).join(' ');
+            if (chunk.trim()) {
+                fullText += `[Page ${pageCounter}]\n${chunk}\n\n`;
+                pageCounter++;
+            }
+        }
+        return fullText;
+    } else {
+        throw new Error(`Unsupported file type: ${file.name}. Please upload a PDF or DOCX file.`);
     }
-    return fullText;
 }
 
 const renderPriorityVisuals = (priority: ManuscriptIssuePriority) => {
@@ -93,8 +116,7 @@ const ManuscriptAnalyzer: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             addAnalysisLog(manuscriptId, "Processing started.");
             try {
                 addAnalysisLog(manuscriptId, "Extracting text from manuscript...");
-                const manuscriptDoc = await pdfjsLib.getDocument({ data: new Uint8Array(await fileObject.arrayBuffer()) }).promise;
-                const manuscriptText = await extractTextFromPdf(manuscriptDoc);
+                const manuscriptText = await extractTextFromFile(fileObject);
                 
                 const CHUNK_SIZE_PAGES = 25;
                 const pageChunks = manuscriptText.split(/(?=\[Page \d+\])/g);
@@ -112,7 +134,7 @@ const ManuscriptAnalyzer: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             allFindings.push(...reportForChunk);
                         }
                     } catch (chunkError) { addAnalysisLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
-                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1500));
+                    if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
                 addAnalysisLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);
@@ -255,7 +277,8 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
 
 
 const FolderCard: React.FC<{ folder: ProjectFolder; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, isExpanded, onExpandToggle, onDelete, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
-    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
+    // FIX: Updated dropzone to accept both PDF and DOCX files.
+    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
             <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
@@ -267,7 +290,8 @@ const FolderCard: React.FC<{ folder: ProjectFolder; isExpanded: boolean; onExpan
                 <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-900/20 text-slate-500 hover:text-teal-600 dark:hover:text-teal-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Upload Manuscripts for Analysis</p>
+                    {/* FIX: Updated dropzone text to include .docx files. */}
+                    <p className="mt-2 text-sm">Upload Manuscripts for Analysis (.pdf, .docx)</p>
                     <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>
