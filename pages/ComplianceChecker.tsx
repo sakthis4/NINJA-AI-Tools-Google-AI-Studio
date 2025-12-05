@@ -5,7 +5,7 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import { performComplianceCheck } from '../services/geminiService';
@@ -44,6 +44,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const ruleFiles = currentUserData?.ruleFiles || {};
     const folders = currentUserData?.complianceFolders || [];
     
+    const [activeTab, setActiveTab] = useState<'profiles' | 'projects'>('profiles');
     const [processingQueue, setProcessingQueue] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -67,9 +68,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
         setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
-        // FIX: The inline return type annotation was causing a TypeScript error.
-        // By explicitly typing the promises array, we can ensure type safety and avoid inference issues.
-        const promises: Promise<[string, RuleFile]>[] = acceptedFiles.map(async (file) => {
+        const promises: Promise<[string, RuleFile]>[] = acceptedFiles.map(async (file): Promise<[string, RuleFile]> => {
             const id = Math.random().toString(36).substring(2, 9);
             const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
             const textContent = await extractTextFromPdf(pdf);
@@ -96,11 +95,11 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             if (isProcessing || processingQueue.length === 0) return;
             setIsProcessing(true);
             const manuscriptId = processingQueue[0];
-            const findResult = folders.reduce<{ folder?: ProjectFolder, manuscript?: ManuscriptFile }>((acc, f) => {
+            const findResult = folders.reduce((acc, f) => {
                 const m = f.manuscripts.find(ms => ms.id === manuscriptId);
                 if (m) { acc.folder = f; acc.manuscript = m; }
                 return acc;
-            }, {});
+            }, {} as { folder?: ProjectFolder, manuscript?: ManuscriptFile });
             const { folder, manuscript } = findResult;
             const fileObject = transientFiles.current.get(manuscriptId);
             
@@ -142,7 +141,6 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             allFindings.push(...reportForChunk);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
-                    // FIX: The promise resolver expects one argument. Passing 'undefined' to satisfy type checking.
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(undefined), 1500));
                 }
 
@@ -167,7 +165,6 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
         
-        // Trigger download
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -181,12 +178,12 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     return (
         <div className="animate-fade-in h-full flex flex-col p-4 md:p-6 lg:p-8 bg-slate-100 dark:bg-slate-900">
-            <div className="flex items-center justify-between mb-6 flex-shrink-0">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
-                        <p className="text-sm text-slate-500">Create profiles, map them to project folders, and check manuscripts for compliance.</p>
+                        <p className="text-sm text-slate-500">A two-step process to configure rules and check manuscripts.</p>
                     </div>
                 </div>
                 {currentUser?.canUseProModel && (
@@ -200,21 +197,47 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                  )}
             </div>
             
-            <div className="flex-grow overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <section className="space-y-4">
-                    <div className="flex justify-between items-center px-2">
-                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-sky-500 to-indigo-500">1. Compliance Profiles</h3>
-                        <button onClick={() => setModal('createProfile')} className="flex items-center px-3 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>Create Profile</button>
-                    </div>
-                    {profiles.map(p => <ProfileCard key={p.id} profile={p} ruleFiles={ruleFiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[p.id]} onDelete={deleteComplianceProfile} onRuleDelete={(ruleId) => deleteRuleFileFromProfile(p.id, ruleId)} onDrop={(files) => onRulesDrop(files, p.id)} />)}
-                </section>
-                <section className="space-y-4">
-                    <div className="flex justify-between items-center px-2">
-                        <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-fuchsia-500">2. Project Folders</h3>
-                        <button onClick={() => { setSelectedProfileForFolder(profiles[0]?.id || null); setModal('createFolder')}} className="flex items-center px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>Create Folder</button>
-                    </div>
-                    {folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}}/>)}
-                </section>
+            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
+                <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
+                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'projects' ? 'border-b-2 border-purple-500 text-purple-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
+            </div>
+            
+            <div className="flex-grow overflow-y-auto">
+                {activeTab === 'profiles' && (
+                    <section className="space-y-4 animate-fade-in">
+                        <div className="flex justify-between items-center px-2">
+                            <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-sky-500 to-indigo-500">Compliance Profiles</h3>
+                            <button onClick={() => setModal('createProfile')} className="flex items-center px-3 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>Create Profile</button>
+                        </div>
+                         {profiles.length === 0 ? (
+                            <div className="text-center py-16 px-4 border-2 border-dashed rounded-lg">
+                                <DocumentTextIcon className="mx-auto h-12 w-12 text-slate-400" />
+                                <h3 className="mt-2 text-lg font-medium text-slate-800 dark:text-slate-200">No Profiles Yet</h3>
+                                <p className="mt-1 text-sm text-slate-500">Get started by creating a compliance profile to hold your rule documents.</p>
+                            </div>
+                        ) : (
+                            profiles.map(p => <ProfileCard key={p.id} profile={p} ruleFiles={ruleFiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[p.id]} onDelete={deleteComplianceProfile} onRuleDelete={(ruleId) => deleteRuleFileFromProfile(p.id, ruleId)} onDrop={(files) => onRulesDrop(files, p.id)} />)
+                        )}
+                    </section>
+                )}
+
+                {activeTab === 'projects' && (
+                    <section className="space-y-4 animate-fade-in">
+                        <div className="flex justify-between items-center px-2">
+                            <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-fuchsia-500">Project Folders</h3>
+                            <button onClick={() => { setSelectedProfileForFolder(profiles[0]?.id || null); setModal('createFolder')}} className="flex items-center px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>Create Folder</button>
+                        </div>
+                         {folders.length === 0 ? (
+                            <div className="text-center py-16 px-4 border-2 border-dashed rounded-lg">
+                                <FolderIcon className="mx-auto h-12 w-12 text-slate-400" />
+                                <h3 className="mt-2 text-lg font-medium text-slate-800 dark:text-slate-200">No Projects Yet</h3>
+                                <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check manuscripts for compliance.</p>
+                            </div>
+                         ) : (
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}}/>)
+                         )}
+                    </section>
+                )}
             </div>
 
             <Modal isOpen={modal === 'createProfile'} onClose={() => setModal(null)} title="Create New Profile">
