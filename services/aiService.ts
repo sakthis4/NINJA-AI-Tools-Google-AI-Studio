@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -114,6 +114,22 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
             recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
         },
         required: ['issueCategory', 'priority', 'summary', 'quote', 'pageNumber', 'recommendation']
+    }
+};
+
+const BOOK_STRUCTURAL_ANALYSIS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            issueCategory: { type: Type.STRING, enum: ['Chapter Sequence', 'Chapter Completeness', 'Formatting Consistency', 'Content Anomaly'], description: 'The category of the structural issue found.' },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. High for major structural flaws, Medium for inconsistencies, Low for minor suggestions.' },
+            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
+            details: { type: Type.STRING, description: 'A detailed explanation of the issue found.' },
+            location: { type: Type.STRING, description: 'The specific location of the issue, e.g., "Chapter 5", "Between Chapter 2 and 3".' },
+            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
+        },
+        required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
     }
 };
 
@@ -407,6 +423,64 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
     } catch (error) {
         console.error("Error calling AI service for manuscript analysis:", error);
         throw new Error("Failed to perform manuscript analysis with the AI service.");
+    }
+}
+
+export async function analyzeBookStructure(manuscriptText: string, modelName: string): Promise<BookStructuralIssue[]> {
+    const prompt = `
+        You are an expert structural editor for a major book publisher. Your task is to perform a detailed structural analysis of the provided book manuscript text. Focus exclusively on the following book-specific structural elements. Report every issue you find according to the provided JSON schema.
+
+        **1. Chapter Sequence, Numbering, and Hierarchy:**
+        - Validate that all chapters are numbered sequentially (e.g., Chapter 1, Chapter 2, Chapter 3) without gaps or duplicates.
+        - Detect any missing chapters based on textual references (e.g., "as discussed in Chapter 4," when Chapter 4 is not present).
+        - Identify misplaced chapters that seem out of logical order.
+        - Check for consistent hierarchy in headings (e.g., H1 for chapters, H2 for main sections, H3 for sub-sections).
+
+        **2. Chapter Completeness:**
+        - For each chapter, verify the presence of essential sections. Assume a standard chapter includes an introduction, several sub-headed sections, and a summary or conclusion. Flag chapters that are missing these key components.
+
+        **3. Formatting Consistency:**
+        - Check for consistent formatting of key elements across chapters. This includes:
+            - Chapter titles (e.g., are they all "Chapter [Number]: [Title]" or just "[Title]"?).
+            - Heading styles.
+            - Block quotes, lists, and other formatted text.
+        
+        **4. Content Anomaly Detection:**
+        - Flag chapters that have an unusually low or high word count compared to the average chapter length in the manuscript. This could indicate an incomplete or overly dense chapter. Provide the word count and the average.
+
+        **Reporting Guidelines:**
+        - For every issue you identify, provide a finding according to the schema.
+        - Assign a priority: 'High' for missing chapters or major sequence breaks, 'Medium' for inconsistent formatting or missing sections, 'Low' for word count anomalies.
+        - Be precise with your descriptions and locations.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: BOOK_STRUCTURAL_ANALYSIS_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for book structure analysis, returning empty array.");
+            return [];
+        }
+        const parsedJson = JSON.parse(jsonText);
+        if (!Array.isArray(parsedJson)) {
+            console.warn("API returned non-array for book structure analysis, returning empty array.", parsedJson);
+            return [];
+        }
+        return parsedJson;
+    } catch (error) {
+        console.error("Error calling AI service for book structure analysis:", error);
+        throw new Error("Failed to perform book structure analysis with the AI service.");
     }
 }
 

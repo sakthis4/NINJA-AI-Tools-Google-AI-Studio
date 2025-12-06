@@ -5,14 +5,14 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, InfoIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { performComplianceCheck } from '../services/aiService';
+import { performComplianceCheck, analyzeBookStructure } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -56,6 +56,15 @@ const renderStatusIcon = (status: FindingStatus) => {
     return <div className={`p-2 rounded-full border ${styles[status]}`}><Icon className="h-6 w-6" /></div>;
 };
 
+const renderPriorityVisuals = (priority: ManuscriptIssuePriority) => {
+    const styles = { High: 'text-red-400 bg-red-900/50 border-red-500/50', Medium: 'text-yellow-400 bg-yellow-900/50 border-yellow-500/50', Low: 'text-sky-400 bg-sky-900/50 border-sky-500/50' };
+    const Icon = { High: ExclamationIcon, Medium: ExclamationIcon, Low: InfoIcon }[priority];
+    return {
+        icon: <div className={`p-2 rounded-full border ${styles[priority]}`}><Icon className="h-6 w-6" /></div>,
+        tag: <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${styles[priority].replace('text-', 'bg-').replace('/50', '/30').replace('border-red-500/50', '')}`}>{priority}</span>
+    };
+};
+
 const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ status }) => {
     const styles = { queued: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200', processing: 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-200', completed: 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200', error: 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200' };
     return <span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[status]}`}>{status}</span>;
@@ -80,6 +89,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
+    const [reportTab, setReportTab] = useState<'compliance' | 'structure'>('compliance');
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -160,19 +170,27 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
                 let allFindings: ComplianceFinding[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
-                    updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
-                    addComplianceLog(manuscriptId, `Processing chunk ${index + 1}/${textChunks.length}...`);
+                    updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / (textChunks.length + 1)) * 100) });
+                    addComplianceLog(manuscriptId, `Processing compliance chunk ${index + 1}/${textChunks.length}...`);
                     try {
                         const { findings } = await performComplianceCheck(chunk, rulesText, selectedModel, false); // Always false for books
                         if (findings.length > 0) {
                             addComplianceLog(manuscriptId, `Found ${findings.length} compliance issues in chunk ${index + 1}.`);
                             allFindings.push(...findings);
                         }
-                    } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
+                    } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing compliance chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
-                addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items.`);
+                addComplianceLog(manuscriptId, `Compliance check finished. Found ${allFindings.length} items. Starting structural analysis...`);
+                let structuralIssues: BookStructuralIssue[] = [];
+                try {
+                    structuralIssues = await analyzeBookStructure(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Structural analysis finished. Found ${structuralIssues.length} issues.`);
+                } catch (analysisError) {
+                    addComplianceLog(manuscriptId, `ERROR during structural analysis: ${analysisError instanceof Error ? analysisError.message : "Unknown"}`);
+                }
+
                 addUsageLog({ 
                     userId: currentUser!.id, 
                     toolName: 'Book Compliance Checker', 
@@ -180,7 +198,12 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     outputId: manuscriptId,
                     outputName: fileObject.name,
                 });
-                updateBookComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
+                updateBookComplianceManuscript(manuscriptId, { 
+                    status: 'completed', 
+                    complianceReport: allFindings, 
+                    structuralReport: structuralIssues, 
+                    progress: 100 
+                });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
                 updateBookComplianceManuscript(manuscriptId, { status: 'error' });
@@ -194,10 +217,17 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
     const handleDownloadLog = (manuscript: ManuscriptFile) => {
         const fileName = `${manuscript.name}.log.txt`;
-        let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
+        let content = `BOOK COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
         (manuscript.complianceReport || []).forEach(f => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
+
+        if (manuscript.structuralReport && manuscript.structuralReport.length > 0) {
+            content += `\n---\n\nSTRUCTURAL ANALYSIS REPORT:\n\n`;
+            manuscript.structuralReport.forEach(f => {
+                content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n- Recommendation: ${f.recommendation}\n\n`;
+            });
+        }
 
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
@@ -220,8 +250,9 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                         <p className="text-sm text-slate-500 mt-1">Strictly validate book manuscripts against screening guidelines.</p>
                          <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
                             <li>Compare book manuscripts against custom rule profiles.</li>
-                            <li>Generate a detailed compliance report with actionable feedback.</li>
-                            <li>Ensure adherence to publisher screening instructions.</li>
+                            <li>Analyze chapter structure, sequence, and formatting consistency.</li>
+                            <li>Detect missing chapters and word count anomalies.</li>
+                            <li>Generate a detailed compliance and structural report.</li>
                         </ul>
                     </div>
                 </div>
@@ -264,7 +295,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                                 <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check book manuscripts.</p>
                             </div>
                          ) : (
-                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteBookComplianceFolder} onMapProfile={(profId) => updateBookComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteBookComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteBookComplianceFolder} onMapProfile={(profId) => updateBookComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteBookComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setReportTab('compliance'); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
                          )}
                     </section>
                 )}
@@ -286,24 +317,57 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-yellow-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
-            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Compliance Report: ${selectedManuscript?.name}`}>
-                <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {(selectedManuscript?.complianceReport || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
-                    {selectedManuscript?.complianceReport?.map((finding, index) => (
-                        <div key={index} className="bg-slate-900 rounded-lg p-4">
-                           <div className="flex items-start justify-between gap-4">
-                                <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.checkCategory}</h4>{renderStatusIcon(finding.status)}
-                           </div>
-                           <p className="text-sm text-slate-400 italic mb-4">"{finding.summary}"</p>
-                           <div className="space-y-3 text-sm">
-                                <p><strong className="font-medium text-cyan-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
-                                <p><strong className="font-medium text-cyan-400">Manuscript (p. {finding.manuscriptPage}):</strong> <span className="text-slate-300 italic">"{finding.manuscriptQuote}"</span></p>
-                                <p><strong className="font-medium text-cyan-400">Rule (p. {finding.rulePage}):</strong> <span className="text-slate-300 italic">"{finding.ruleContent}"</span></p>
-                           </div>
-                        </div>
-                    ))}
-                    <div className="text-center pt-2"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
+            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
+                <div className="flex border-b border-slate-700 mb-4">
+                    <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>
+                        Compliance Report ({selectedManuscript?.complianceReport?.length || 0})
+                    </button>
+                    <button onClick={() => setReportTab('structure')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'structure' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>
+                        Structural Analysis ({selectedManuscript?.structuralReport?.length || 0})
+                    </button>
                 </div>
+
+                {reportTab === 'compliance' && (
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.complianceReport || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
+                        {selectedManuscript?.complianceReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4">
+                               <div className="flex items-start justify-between gap-4">
+                                    <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.checkCategory}</h4>{renderStatusIcon(finding.status)}
+                               </div>
+                               <p className="text-sm text-slate-400 italic mb-4">"{finding.summary}"</p>
+                               <div className="space-y-3 text-sm">
+                                    <p><strong className="font-medium text-cyan-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
+                                    <p><strong className="font-medium text-cyan-400">Manuscript (p. {finding.manuscriptPage}):</strong> <span className="text-slate-300 italic">"{finding.manuscriptQuote}"</span></p>
+                                    <p><strong className="font-medium text-cyan-400">Rule (p. {finding.rulePage}):</strong> <span className="text-slate-300 italic">"{finding.ruleContent}"</span></p>
+                               </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {reportTab === 'structure' && (
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.structuralReport || []).length === 0 && <p className="text-center text-slate-500">No structural issues found.</p>}
+                        {selectedManuscript?.structuralReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4">
+                               <div className="flex items-start justify-between gap-4">
+                                    <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.issueCategory}</h4>
+                                    {renderPriorityVisuals(finding.priority).icon}
+                               </div>
+                               <div className="flex items-center justify-between mb-3">
+                                   <p className="text-sm text-slate-400 italic">"{finding.summary}"</p>
+                                   {renderPriorityVisuals(finding.priority).tag}
+                               </div>
+                               <div className="space-y-3 text-sm">
+                                    <p><strong className="font-medium text-teal-400">Location:</strong> <span className="text-slate-300">{finding.location}</span></p>
+                                    <p><strong className="font-medium text-teal-400">Details:</strong> <span className="text-slate-300">{finding.details}</span></p>
+                                    <p><strong className="font-medium text-teal-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
+                               </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <div className="text-center pt-4 border-t border-slate-700 mt-4"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
             </Modal>
              <Modal isOpen={modal === 'viewLogs' && !!selectedManuscript} onClose={() => setModal(null)} title={`Logs: ${selectedManuscript?.name}`}>
                 <div className="bg-slate-900 text-white font-mono text-xs rounded-md p-4 max-h-96 overflow-y-auto">

@@ -106,6 +106,15 @@ export interface ManuscriptIssue {
     recommendation: string;
 }
 
+export interface BookStructuralIssue {
+    issueCategory: 'Chapter Sequence' | 'Chapter Completeness' | 'Formatting Consistency' | 'Content Anomaly';
+    priority: 'High' | 'Medium' | 'Low';
+    summary: string;
+    details: string;
+    location: string;
+    recommendation: string;
+}
+
 export interface JournalRecommendation {
     journalName: string;
     publisher: string;
@@ -134,6 +143,7 @@ export interface ManuscriptFile {
   status: ManuscriptStatus;
   complianceReport?: ComplianceFinding[];
   analysisReport?: ManuscriptIssue[];
+  structuralReport?: BookStructuralIssue[];
   journalRecommendations?: JournalRecommendation[];
   logs?: string[];
   progress?: number;

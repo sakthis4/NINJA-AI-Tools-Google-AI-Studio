@@ -60,6 +60,13 @@ export default function UsageDashboard() {
                     });
                 }
                 
+                if (log.toolName === 'Book Compliance Checker' && manuscript.structuralReport && manuscript.structuralReport.length > 0) {
+                    content += `\n---\n\nSTRUCTURAL ANALYSIS REPORT:\n\n`;
+                    manuscript.structuralReport.forEach(f => {
+                        content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n- Recommendation: ${f.recommendation}\n\n`;
+                    });
+                }
+
                 downloadFile(fileName, content, 'text/plain');
             } else { throw new Error('Could not find the original manuscript data for compliance report.'); }
         } else if (log.toolName === 'Manuscript Analyzer' && log.outputId) {
