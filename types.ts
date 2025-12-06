@@ -123,6 +123,7 @@ export interface RuleFile {
 export interface ComplianceProfile {
   id: string;
   name: string;
+  type: 'book' | 'journal';
   ruleFileIds: string[];
 }
 

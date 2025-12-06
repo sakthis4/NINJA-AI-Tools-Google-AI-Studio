@@ -33,7 +33,8 @@ interface AppContextType {
   addBookFilesToFolder: (folderId: string, files: BookFile[]) => void;
   updateBookFile: (bookId: string, updates: Partial<BookFile>) => void;
   deleteBookFile: (folderId: string, bookId: string) => void;
-  createComplianceProfile: (name: string) => void;
+  createJournalComplianceProfile: (name: string) => void;
+  createBookComplianceProfile: (name: string) => void;
   deleteComplianceProfile: (profileId: string) => void;
   addRuleFilesToProfile: (profileId: string, newRuleFiles: Record<string, any>) => void;
   deleteRuleFileFromProfile: (profileId: string, ruleFileId: string) => void;
@@ -264,7 +265,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateBookFile = useCallback((bookId: string, updates: Partial<BookFile>) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.map(f => ({ ...f, bookFiles: f.bookFiles.map(p => p.id === bookId ? { ...p, ...updates } : p) })) })), [updateCurrentUserStore]);
   const deleteBookFile = useCallback((folderId: string, bookId: string) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.map(f => f.id === folderId ? { ...f, bookFiles: f.bookFiles.filter(p => p.id !== bookId) } : f) })), [updateCurrentUserStore]);
 
-  const createComplianceProfile = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: [...store.complianceProfiles, { id: Date.now().toString(), name, ruleFileIds: [] }] })), [updateCurrentUserStore]);
+  const createJournalComplianceProfile = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: [...store.complianceProfiles, { id: Date.now().toString(), name, type: 'journal', ruleFileIds: [] }] })), [updateCurrentUserStore]);
+  const createBookComplianceProfile = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: [...store.complianceProfiles, { id: Date.now().toString(), name, type: 'book', ruleFileIds: [] }] })), [updateCurrentUserStore]);
   const deleteComplianceProfile = useCallback((profileId: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: store.complianceProfiles.filter(p => p.id !== profileId) })), [updateCurrentUserStore]);
   const addRuleFilesToProfile = useCallback((profileId: string, newRuleFiles: Record<string, any>) => updateCurrentUserStore(store => ({ ...store, ruleFiles: { ...store.ruleFiles, ...newRuleFiles }, complianceProfiles: store.complianceProfiles.map(p => p.id === profileId ? { ...p, ruleFileIds: [...p.ruleFileIds, ...Object.keys(newRuleFiles)] } : p) })), [updateCurrentUserStore]);
   const deleteRuleFileFromProfile = useCallback((profileId: string, ruleFileId: string) => updateCurrentUserStore(store => ({...store, complianceProfiles: store.complianceProfiles.map(p => p.id === profileId ? { ...p, ruleFileIds: p.ruleFileIds.filter(id => id !== ruleFileId) } : p) })), [updateCurrentUserStore]);
@@ -310,11 +312,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs,
     updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset,
     createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile,
-    createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile,
+    createJournalComplianceProfile, createBookComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile,
     createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript,
     createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript,
     createAnalysisFolder, deleteAnalysisFolder, addManuscriptsToAnalysisFolder, updateAnalysisManuscript, deleteAnalysisManuscript,
-  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript, createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript, createAnalysisFolder, deleteAnalysisFolder, addManuscriptsToAnalysisFolder, updateAnalysisManuscript, deleteAnalysisManuscript]);
+  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile, createJournalComplianceProfile, createBookComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript, createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript, createAnalysisFolder, deleteAnalysisFolder, addManuscriptsToAnalysisFolder, updateAnalysisManuscript, deleteAnalysisManuscript]);
 
   if (!state.isInitialized) return null;
 

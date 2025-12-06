@@ -63,7 +63,8 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
 
 const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     // FIX: Updated to use specific journal compliance functions from context.
-    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript } = useAppContext();
+    // FIX: Replaced 'createComplianceProfile' with the correct context function 'createJournalComplianceProfile'.
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createJournalComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript } = useAppContext();
     const profiles = currentUserData?.complianceProfiles || [];
     const ruleFiles = currentUserData?.ruleFiles || {};
     // FIX: Updated to use 'journalComplianceFolders' from the user's data store.
@@ -182,7 +183,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items and ${allRecommendations.length} journal recommendations.`);
                 addUsageLog({ 
                     userId: currentUser!.id, 
-                    toolName: 'Compliance Checker', 
+                    toolName: 'Journal Compliance Checker', 
                     modelName: selectedModel,
                     outputId: manuscriptId,
                     outputName: fileObject.name,
@@ -234,7 +235,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
+                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Journal Compliance Checker</h2>
                         <p className="text-sm text-slate-500 mt-1">Check manuscripts against submission guidelines and receive journal recommendations.</p>
                          <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
                             <li>Compare manuscripts against custom rule profiles.</li>
@@ -289,7 +290,8 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
 
             <Modal isOpen={modal === 'createProfile'} onClose={() => setModal(null)} title="Create New Profile">
-                <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
+                {/* FIX: Replaced 'createComplianceProfile' with 'createJournalComplianceProfile' to correctly create a journal-specific profile. */}
+                <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createJournalComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
                     <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., Journal of Clinical Studies" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-md">Create</button></div>
                 </form>

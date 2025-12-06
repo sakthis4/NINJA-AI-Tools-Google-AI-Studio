@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
 import Spinner from '../components/Spinner';
@@ -62,8 +62,9 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
 };
 
 const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript } = useAppContext();
-    const profiles = currentUserData?.complianceProfiles || [];
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createBookComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript } = useAppContext();
+    const allProfiles = currentUserData?.complianceProfiles || [];
+    const profiles = useMemo(() => allProfiles.filter(p => p.type === 'book'), [allProfiles]);
     const ruleFiles = currentUserData?.ruleFiles || {};
     const folders = currentUserData?.bookComplianceFolders || [];
     
@@ -270,7 +271,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             </div>
 
             <Modal isOpen={modal === 'createProfile'} onClose={() => setModal(null)} title="Create New Profile">
-                <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
+                <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createBookComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
                     <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., University Press Style Guide" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-md">Create</button></div>
                 </form>

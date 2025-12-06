@@ -54,6 +54,17 @@ const migrateV0toV1 = (): StoredAppState | null => {
         }
     });
 
+    // Patch old compliance profiles to have a type
+    Object.values(appData).forEach(userData => {
+        if (userData.complianceProfiles) {
+            userData.complianceProfiles.forEach(profile => {
+                if (!profile.type) {
+                    profile.type = 'journal'; // Default old profiles to 'journal'
+                }
+            });
+        }
+    });
+
     const migratedState: StoredAppState = {
         version: 1,
         users,
@@ -80,7 +91,18 @@ export const loadInitialState = (): AppState => {
     if (storedStateJSON) {
         try {
             const storedState: StoredAppState = JSON.parse(storedStateJSON);
-            // Here you could add future migration steps, e.g., if (storedState.version < 2) migrateV1toV2(...)
+            
+            // Patch existing data for forward compatibility if needed
+            Object.values(storedState.appData).forEach(userData => {
+                if (userData.complianceProfiles) {
+                    userData.complianceProfiles.forEach(profile => {
+                        if (!profile.type) {
+                            profile.type = 'journal'; // Default old profiles without a type to 'journal'
+                        }
+                    });
+                }
+            });
+
             return storedState;
         } catch {
             // Handle parsing error by falling back
