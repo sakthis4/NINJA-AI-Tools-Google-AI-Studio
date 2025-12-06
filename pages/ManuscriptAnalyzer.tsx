@@ -188,7 +188,16 @@ const ManuscriptAnalyzer: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Manuscript Analyzer</h2>
-                        <p className="text-sm text-slate-500">Check for grammar, integrity, plagiarism, and more.</p>
+                        <p className="text-sm text-slate-500 mt-1">
+                            Performs a comprehensive pre-flight check covering:
+                        </p>
+                        <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
+                            <li>Grammar, spelling, and clarity issues.</li>
+                            <li>Citation integrity and broken identifier validation.</li>
+                            <li>Figure/Table numbering, placement, and caption structure.</li>
+                            <li>Checks for in-text mentions for all assets.</li>
+                            <li>Potential plagiarism and ethical concerns.</li>
+                        </ul>
                     </div>
                 </div>
             </div>

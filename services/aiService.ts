@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
 import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue } from '../types';
 
@@ -117,16 +118,17 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
     }
 };
 
+// FIX: Added schema for book metadata extraction.
 const BOOK_METADATA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
         onix: {
             type: Type.STRING,
-            description: 'A complete and well-formed ONIX 3.0 XML document containing all extracted metadata. This should include all mandatory fields for distribution platforms.'
+            description: 'The full ONIX 3.0 metadata record for the book, formatted as an XML string. This should be a complete and valid ONIX file content.'
         },
         marc: {
             type: Type.STRING,
-            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Author Name.`'
+            description: 'The full MARC21 metadata record for the book, formatted as a human-readable string. Each field should be on a new line, starting with the three-digit MARC tag (e.g., "245 10 $a Title...").'
         }
     },
     required: ['onix', 'marc']
@@ -305,7 +307,6 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
         **1. Standard Editorial Analysis:**
         - **Grammar and Spelling:** Identify grammatical errors, typos, and awkward phrasing.
         - **Clarity and Flow:** Check for unclear sentences, logical inconsistencies, and poor structural flow.
-        - **Structural Integrity:** Verify that the manuscript follows a logical structure (e.g., Introduction, Methods, Results, Discussion). Check for issues like missing sections.
         - **Ethical Concerns:** Flag potential ethical issues, such as the lack of a patient consent statement or indications of data manipulation.
         - **Plagiarism Concern:** Identify sentences or paragraphs that appear highly unoriginal or are phrased in a way that suggests copying without attribution. This is a flag for human review, not a definitive check.
 
@@ -329,10 +330,22 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
                - **Incorrect ISBN/ISSN:** An ISBN or ISSN that has an obviously incorrect number of digits or invalid characters.
                - **Malformed arXiv/PubMed ID:** An identifier that does not follow the standard format for its type.
         - **Example Finding:** If a reference has "DOI: 10.1000/xyz" (missing the protocol slash), report it as a broken identifier.
+        
+        **4. Figure and Table Integrity Check:**
+        - **Goal:** Verify the correct formatting, numbering, placement, and referencing of all figures and tables.
+        - **Process:**
+            a. Identify all figures and tables in the manuscript (e.g., "Figure 1", "Table 2").
+            b. Check for the following issues and report them as 'Structural Integrity' problems:
+               - **Numbering Sequence:** Ensure figures and tables are numbered sequentially (e.g., Figure 1, Figure 2, Figure 3). Report any gaps or out-of-order numbering.
+               - **Caption Presence & Structure:** Verify that every identified figure and table has a caption immediately following it. The caption must start with the correct label and number (e.g., "Figure 1.", "Table 2:").
+               - **In-text Mention:** For every figure and table, verify it is mentioned or cited in the main body of the text (e.g., "...as shown in Figure 1..."). Report any figures or tables that are not mentioned.
+               - **Placement Order:** Check if figures/tables are mentioned in the text *before* they appear. Report if, for example, Figure 3 is mentioned on page 5 but the actual figure appears on page 4.
+               - **Table Formatting:** From the text representation, identify potential formatting issues in tables, such as misaligned columns or tables that seem incomplete.
+               - **Figure Resolution (Disclaimer):** Report a 'Low' priority issue reminding the user to manually check that all figures meet the publisher's resolution requirements (e.g., 300 DPI), as you cannot check image resolution from text.
 
         **Reporting Guidelines:**
         - For every issue you identify, provide a finding according to the provided JSON schema.
-        - Assign a priority: 'High' (publication-blocking issues like citation breaks), 'Medium' (significant issues like malformed DOIs), 'Low' (minor issues).
+        - Assign a priority: 'High' (publication-blocking issues like citation breaks, missing captions), 'Medium' (significant issues like malformed DOIs, out-of-order figures), 'Low' (minor issues, resolution reminder).
         - Be precise with quotes and page numbers.
 
         MANUSCRIPT CHUNK:
@@ -366,47 +379,21 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
     }
 }
 
-export async function extractBookMetadata(fullText: string, modelName: string): Promise<{ onix: string; marc: string }> {
+// FIX: Added missing function to extract book metadata.
+export async function extractBookMetadata(manuscriptText: string, modelName: string): Promise<{ onix: string; marc: string; }> {
     const prompt = `
-        You are an expert metadata librarian and publishing professional. Your task is to analyze the full text of the provided book or journal and extract comprehensive bibliographic metadata required for commercial distribution and library cataloging. Generate two distinct, standards-compliant metadata records.
+        You are an expert librarian and metadata specialist. Your task is to analyze the full text of the provided book or journal and generate comprehensive, distribution-ready metadata in both ONIX 3.0 (XML) and MARC21 (human-readable) formats.
 
-        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms. Pay close attention to:
-            - **RecordReference:** A unique identifier for this ONIX record.
-            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13"), ISSN, and DOI.
-            - **DescriptiveDetail:**
-                - **TitleDetail:** Full title, subtitle. For journals, include Volume and Issue numbers (e.g., using <PartNumber> for issue).
-                - **Contributor:** All authors, editors, etc., with correct roles and biographical notes if available.
-                - **Language:** Language of the text.
-                - **Extent:** Total number of pages (use ExtentType '00' and ExtentUnit '03').
-                - **Subject:** Provide multiple subject headings using both BISAC (for North America) and Thema (international) schemes. Extract keywords and topics from the text to generate these.
-            - **CollateralDetail:**
-                - **TextContent:** Include a detailed summary/description (TextType code 03) and a full table of contents (TextType code 04) if present in the source text. Also include promotional text or keywords.
-            - **PublishingDetail:**
-                - **Publisher:** Full publisher name.
-                - **PublishingDate:** Date of publication.
-            - **ProductSupply:**
-                - **SupplyDetail:** Include supplier information and at least one price (e.g., US Dollar).
+        **Instructions:**
+        1.  **Analyze the Content:** Read through the provided text, which may include the cover, title page, copyright page, table of contents, and chapters.
+        2.  **Extract Key Information:** Identify all relevant metadata fields, including but not limited to: Title, Subtitle, Author(s), Editor(s), Publisher, Publication Date, ISBN, DOI, Series Information, Edition, Abstract/Description, Keywords, and Table of Contents.
+        3.  **Generate ONIX 3.0:** Create a complete and valid ONIX 3.0 XML record. Ensure all necessary tags are present and correctly structured.
+        4.  **Generate MARC21:** Create a complete MARC21 record in a human-readable format. Each field must start on a new line with its corresponding 3-digit tag (e.g., '100', '245', '260').
 
-        2.  **MARC21:** Create a human-readable text representation of a MARC21 record, ready for library systems. Each field must be on a new line, formatted precisely with the MARC tag, indicators, and subfield codes (e.g., \`100 1# $a Smith, John.\`). Include all essential fields:
-            - **Leader:** A placeholder is acceptable if you cannot generate a valid one.
-            - **008:** Fixed-Length Data Elements (Date of publication, language, etc.).
-            - **020:** ISBN ($a).
-            - **022:** ISSN ($a).
-            - **082:** Dewey Decimal Classification (if it can be inferred).
-            - **100:** Main Entry - Personal Name ($a Author Name, $d dates if available).
-            - **245:** Title Statement ($a Title : $b subtitle / $c statement of responsibility).
-            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Publisher Name, $c Date).
-            - **300:** Physical Description ($a number of pages : $b other physical details ; $c dimensions).
-            - **505:** Formatted Contents Note (Table of Contents).
-            - **520:** Summary Note (A full, detailed summary or abstract).
-            - **650:** Subject Added Entry - Topical Term ($a Topic -- $z Geographic subdivision). Generate multiple relevant subjects based on the content, including keywords and taxonomy.
-            - **655:** Index Term - Genre/Form ($a Genre).
-            - **773:** Host Item Entry (For journal articles, to contain journal title, Volume, Issue, and date information. e.g., $t Journal Title $g Vol. 12, Iss. 3 (2024)).
+        Return the result as a single JSON object with two keys: "onix" and "marc".
 
-        Extract this information meticulously from the following document text.
-
-        DOCUMENT TEXT:
-        ${fullText}
+        BOOK/JOURNAL TEXT:
+        ${manuscriptText}
     `;
 
     try {
@@ -418,16 +405,16 @@ export async function extractBookMetadata(fullText: string, modelName: string): 
                 responseSchema: BOOK_METADATA_SCHEMA,
             },
         }));
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        
         const jsonText = response.text?.trim();
         if (!jsonText) {
-            throw new Error("API returned empty response for book metadata extraction.");
+            throw new Error("API returned empty response for book metadata.");
         }
         const parsedJson = JSON.parse(jsonText);
-        if (typeof parsedJson.onix !== 'string' || typeof parsedJson.marc !== 'string') {
-            throw new Error("API response did not contain the expected 'onix' and 'marc' string properties.");
+        if (typeof parsedJson !== 'object' || parsedJson === null || !('onix' in parsedJson) || !('marc' in parsedJson)) {
+            throw new Error("API returned invalid format for book metadata.");
         }
-        return parsedJson;
+        return parsedJson as { onix: string; marc: string; };
     } catch (error) {
         console.error("Error calling AI service for book metadata extraction:", error);
         throw new Error("Failed to extract book metadata with the AI service.");
