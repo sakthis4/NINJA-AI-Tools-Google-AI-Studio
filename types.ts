@@ -167,12 +167,6 @@ export interface ComplianceProjectFolder {
   manuscripts: ManuscriptFile[];
 }
 
-export interface AnalysisProjectFolder {
-  id: string;
-  name: string;
-  manuscripts: ManuscriptFile[];
-}
-
 // Types for the new folder-based Metadata Extractor
 export type PdfFileStatus = 'queued' | 'processing' | 'completed' | 'error';
 
@@ -219,7 +213,6 @@ export interface UserDataStore {
   bookFolders: BookProjectFolder[];
   journalComplianceFolders: ComplianceProjectFolder[];
   bookComplianceFolders: ComplianceProjectFolder[];
-  analysisFolders: AnalysisProjectFolder[];
   complianceProfiles: ComplianceProfile[];
   ruleFiles: Record<string, RuleFile>;
 }

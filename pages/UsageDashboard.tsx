@@ -45,9 +45,18 @@ export default function UsageDashboard() {
             const manuscript = folders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
             
             if (manuscript) {
-                const fileName = `${manuscript.name}_compliance.log.txt`;
-                let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
-                (manuscript.complianceReport || []).forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                const fileName = `${manuscript.name}_report.log.txt`;
+                let content = `COMPREHENSIVE REPORT\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n`;
+
+                if (manuscript.complianceReport && manuscript.complianceReport.length > 0) {
+                    content += `\n---\n\nCOMPLIANCE REPORT:\n\n`;
+                    manuscript.complianceReport.forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                }
+
+                if (manuscript.analysisReport && manuscript.analysisReport.length > 0) {
+                    content += `\n---\n\nMANUSCRIPT ANALYSIS REPORT:\n\n`;
+                    manuscript.analysisReport.forEach(f => { content += `[${f.priority.toUpperCase()}] ${f.issueCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.pageNumber}): "${f.quote}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                }
                 
                 if (log.toolName === 'Journal Compliance Checker' && manuscript.journalRecommendations && manuscript.journalRecommendations.length > 0) {
                     content += `\n---\n\nJOURNAL RECOMMENDATIONS:\n\n`;
@@ -78,14 +87,6 @@ export default function UsageDashboard() {
 
                 downloadFile(fileName, content, 'text/plain');
             } else { throw new Error('Could not find the original manuscript data for compliance report.'); }
-        } else if (log.toolName === 'Manuscript Analyzer' && log.outputId) {
-            const manuscript = currentUserData.analysisFolders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
-            if (manuscript) {
-                const fileName = `${manuscript.name}_analysis.log.txt`;
-                let content = `MANUSCRIPT ANALYSIS LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nANALYSIS REPORT:\n\n`;
-                (manuscript.analysisReport || []).forEach(f => { content += `[${f.priority.toUpperCase()}] ${f.issueCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.pageNumber}): "${f.quote}"\n- Recommendation: ${f.recommendation}\n\n`; });
-                downloadFile(fileName, content, 'text/plain');
-            } else { throw new Error('Could not find the original manuscript data for analysis report.'); }
         } else if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) {
             const pdfFile = currentUserData.metadataFolders.flatMap(f => f.pdfFiles).find(p => p.id === log.outputId);
             if (pdfFile) {
