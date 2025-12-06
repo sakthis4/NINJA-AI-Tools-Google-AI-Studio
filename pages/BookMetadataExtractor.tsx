@@ -281,6 +281,12 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
     const [onixValidation, setOnixValidation] = useState<{ isValid: boolean; error: string | null; errorLine: number | null }>({ isValid: true, error: null, errorLine: null });
     const [marcValidation, setMarcValidation] = useState<{ isValid: boolean; error: string | null; errorLine: number | null }>({ isValid: true, error: null, errorLine: null });
 
+    const addLog = useCallback((message: string) => {
+        const timestamp = new Date().toLocaleTimeString();
+        const formattedMessage = `[${timestamp}] ${message}`;
+        updateBookFile(bookFile.id, { logs: [...(bookFile.logs || []), formattedMessage] });
+    }, [bookFile.id, bookFile.logs, updateBookFile]);
+
     const validateOnix = (xmlString: string) => {
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlString, "application/xml");
@@ -335,11 +341,15 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
 
     const handleSaveChanges = () => {
         if (!onixValidation.isValid) {
-            setStatusBarMessage(onixValidation.error || 'Invalid ONIX data.', 'error');
+            const error = `Invalid ONIX data${onixValidation.errorLine ? ` on line ${onixValidation.errorLine}` : ''}: ${onixValidation.error || 'Please fix XML errors.'}`;
+            setStatusBarMessage(error, 'error');
+            addLog(`EDITOR_SAVE_FAIL: ${error}`);
             return;
         }
         if (!marcValidation.isValid) {
-            setStatusBarMessage(marcValidation.error || 'Invalid MARC data.', 'error');
+            const error = `Invalid MARC data${marcValidation.errorLine ? ` on line ${marcValidation.errorLine}` : ''}: ${marcValidation.error || 'Please fix formatting errors.'}`;
+            setStatusBarMessage(error, 'error');
+            addLog(`EDITOR_SAVE_FAIL: ${error}`);
             return;
         }
         updateBookFile(bookFile.id, {
@@ -348,6 +358,7 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
         });
         setHasChanges(false);
         setStatusBarMessage('Changes saved successfully!', 'success');
+        addLog('INFO: Manual edits to metadata saved.');
     };
 
     const handleDownload = (format: 'onix' | 'marc') => {
