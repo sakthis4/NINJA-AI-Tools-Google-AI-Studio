@@ -115,6 +115,16 @@ export interface BookStructuralIssue {
     recommendation: string;
 }
 
+export interface ReadabilityIssue {
+    issueCategory: 'Readability Score' | 'Tone Inconsistency' | 'Clarity' | 'Passive Voice';
+    priority: 'High' | 'Medium' | 'Low';
+    summary: string;
+    details: string;
+    location: string; // e.g., "Chapter 3", "Chapter 5, Paragraph 2"
+    quote?: string; // Optional quote for clarity/passive voice issues
+    recommendation: string;
+}
+
 export interface JournalRecommendation {
     journalName: string;
     publisher: string;
@@ -144,6 +154,7 @@ export interface ManuscriptFile {
   complianceReport?: ComplianceFinding[];
   analysisReport?: ManuscriptIssue[];
   structuralReport?: BookStructuralIssue[];
+  readabilityReport?: ReadabilityIssue[];
   journalRecommendations?: JournalRecommendation[];
   logs?: string[];
   progress?: number;

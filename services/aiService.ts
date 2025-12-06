@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -128,6 +128,23 @@ const BOOK_STRUCTURAL_ANALYSIS_SCHEMA = {
             details: { type: Type.STRING, description: 'A detailed explanation of the issue found.' },
             location: { type: Type.STRING, description: 'The specific location of the issue, e.g., "Chapter 5", "Between Chapter 2 and 3".' },
             recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
+        },
+        required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
+    }
+};
+
+const READABILITY_ANALYSIS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            issueCategory: { type: Type.STRING, enum: ['Readability Score', 'Tone Inconsistency', 'Clarity', 'Passive Voice'], description: 'The category of the language issue found.' },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. Use Low for scores and general observations, Medium for passive voice, and High for significant clarity or tone problems.' },
+            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
+            details: { type: Type.STRING, description: 'A detailed explanation. For readability, include the score (e.g., "Flesch-Kincaid: 45.2"). For tone, explain the difference. For clarity/passive voice, explain the problem.' },
+            location: { type: Type.STRING, description: 'The specific chapter or paragraph location of the issue.' },
+            quote: { type: Type.STRING, description: 'The exact quote from the manuscript that is relevant to the finding. Not required for general chapter scores or tone assessments.' },
+            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation, including rewrite suggestions where applicable.' }
         },
         required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
     }
@@ -481,6 +498,70 @@ export async function analyzeBookStructure(manuscriptText: string, modelName: st
     } catch (error) {
         console.error("Error calling AI service for book structure analysis:", error);
         throw new Error("Failed to perform book structure analysis with the AI service.");
+    }
+}
+
+export async function analyzeReadability(manuscriptText: string, modelName: string): Promise<ReadabilityIssue[]> {
+    const prompt = `
+        You are an expert developmental editor specializing in language, readability, and style. Your task is to perform a detailed, chapter-by-chapter analysis of the provided book manuscript text. Report every issue you find according to the provided JSON schema.
+
+        **1. Readability Scoring (Chapter-wise):**
+        - For each chapter, calculate a Flesch-Kincaid Reading Ease score.
+        - Report this score for every chapter as a 'Readability Score' issue with 'Low' priority.
+        - In the 'details' field, state the score clearly (e.g., "Flesch-Kincaid Reading Ease: 65.3").
+        - In the 'recommendation' field, provide a brief interpretation of the score (e.g., "This score is appropriate for a general audience.").
+
+        **2. Tone Consistency Analysis:**
+        - Assess the overall tone of the manuscript.
+        - Identify any chapters where the tone significantly deviates from the established norm (e.g., a chapter is suddenly very formal in an otherwise informal book).
+        - Report this as a 'Tone Inconsistency' issue.
+
+        **3. Clarity and Complexity Flagging:**
+        - Scan each chapter for paragraphs that are overly complex, convoluted, or unclear.
+        - For each flagged paragraph, create a 'Clarity' issue.
+        - Include the problematic paragraph in the 'quote' field.
+        - Provide a specific rewrite suggestion in the 'recommendation' field to improve clarity.
+
+        **4. Passive Voice Detection:**
+        - Identify sentences that use the passive voice.
+        - If a paragraph contains excessive passive voice usage (e.g., more than two instances), flag it.
+        - Report this as a 'Passive Voice' issue.
+        - Include the paragraph in the 'quote' field.
+        - In the 'recommendation' field, suggest rewriting the sentences in the active voice and provide an example.
+
+        **Reporting Guidelines:**
+        - Provide a finding for every chapter's readability score.
+        - Only report findings for tone, clarity, and passive voice if an issue is detected.
+        - Be precise with your locations, quotes, and recommendations.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: READABILITY_ANALYSIS_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for readability analysis, returning empty array.");
+            return [];
+        }
+        const parsedJson = JSON.parse(jsonText);
+        if (!Array.isArray(parsedJson)) {
+            console.warn("API returned non-array for readability analysis, returning empty array.", parsedJson);
+            return [];
+        }
+        return parsedJson;
+    } catch (error) {
+        console.error("Error calling AI service for readability analysis:", error);
+        throw new Error("Failed to perform readability analysis with the AI service.");
     }
 }
 

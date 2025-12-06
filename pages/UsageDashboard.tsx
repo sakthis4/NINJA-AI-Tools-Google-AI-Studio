@@ -67,6 +67,15 @@ export default function UsageDashboard() {
                     });
                 }
 
+                if (log.toolName === 'Book Compliance Checker' && manuscript.readabilityReport && manuscript.readabilityReport.length > 0) {
+                    content += `\n---\n\nREADABILITY ANALYSIS REPORT:\n\n`;
+                    manuscript.readabilityReport.forEach(f => {
+                        content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n`;
+                        if (f.quote) content += `- Quote: "${f.quote}"\n`;
+                        content += `- Recommendation: ${f.recommendation}\n\n`;
+                    });
+                }
+
                 downloadFile(fileName, content, 'text/plain');
             } else { throw new Error('Could not find the original manuscript data for compliance report.'); }
         } else if (log.toolName === 'Manuscript Analyzer' && log.outputId) {

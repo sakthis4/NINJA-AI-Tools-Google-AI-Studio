@@ -9,10 +9,10 @@ import {
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { performComplianceCheck, analyzeBookStructure } from '../services/aiService';
+import { performComplianceCheck, analyzeBookStructure, analyzeReadability } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority, ReadabilityIssue
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -89,7 +89,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
-    const [reportTab, setReportTab] = useState<'compliance' | 'structure'>('compliance');
+    const [reportTab, setReportTab] = useState<'compliance' | 'structure' | 'readability'>('compliance');
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -167,10 +167,12 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
+                
+                const totalSteps = textChunks.length + 2; // chunks + structural + readability
 
                 let allFindings: ComplianceFinding[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
-                    updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / (textChunks.length + 1)) * 100) });
+                    updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / totalSteps) * 100) });
                     addComplianceLog(manuscriptId, `Processing compliance chunk ${index + 1}/${textChunks.length}...`);
                     try {
                         const { findings } = await performComplianceCheck(chunk, rulesText, selectedModel, false); // Always false for books
@@ -181,7 +183,8 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing compliance chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
-
+                
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round((textChunks.length / totalSteps) * 100) });
                 addComplianceLog(manuscriptId, `Compliance check finished. Found ${allFindings.length} items. Starting structural analysis...`);
                 let structuralIssues: BookStructuralIssue[] = [];
                 try {
@@ -189,6 +192,16 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     addComplianceLog(manuscriptId, `Structural analysis finished. Found ${structuralIssues.length} issues.`);
                 } catch (analysisError) {
                     addComplianceLog(manuscriptId, `ERROR during structural analysis: ${analysisError instanceof Error ? analysisError.message : "Unknown"}`);
+                }
+
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 1) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Structural analysis finished. Starting readability analysis...`);
+                let readabilityIssues: ReadabilityIssue[] = [];
+                try {
+                    readabilityIssues = await analyzeReadability(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Readability analysis finished. Found ${readabilityIssues.length} items.`);
+                } catch (readabilityError) {
+                    addComplianceLog(manuscriptId, `ERROR during readability analysis: ${readabilityError instanceof Error ? readabilityError.message : "Unknown"}`);
                 }
 
                 addUsageLog({ 
@@ -202,6 +215,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     status: 'completed', 
                     complianceReport: allFindings, 
                     structuralReport: structuralIssues, 
+                    readabilityReport: readabilityIssues,
                     progress: 100 
                 });
             } catch (error) {
@@ -229,6 +243,15 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             });
         }
 
+        if (manuscript.readabilityReport && manuscript.readabilityReport.length > 0) {
+            content += `\n---\n\nREADABILITY ANALYSIS REPORT:\n\n`;
+            manuscript.readabilityReport.forEach(f => {
+                content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n`;
+                if (f.quote) content += `- Quote: "${f.quote}"\n`;
+                content += `- Recommendation: ${f.recommendation}\n\n`;
+            });
+        }
+
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -247,12 +270,13 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book Compliance Checker</h2>
-                        <p className="text-sm text-slate-500 mt-1">Strictly validate book manuscripts against screening guidelines.</p>
+                        <p className="text-sm text-slate-500 mt-1">Validate manuscripts against guidelines and analyze chapter-level structure and readability.</p>
                          <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
                             <li>Compare book manuscripts against custom rule profiles.</li>
                             <li>Analyze chapter structure, sequence, and formatting consistency.</li>
                             <li>Detect missing chapters and word count anomalies.</li>
-                            <li>Generate a detailed compliance and structural report.</li>
+                            <li>Score chapter-by-chapter readability and check tone consistency.</li>
+                            <li>Flag unclear language and excessive passive voice with rewrite suggestions.</li>
                         </ul>
                     </div>
                 </div>
@@ -320,10 +344,13 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
                 <div className="flex border-b border-slate-700 mb-4">
                     <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>
-                        Compliance Report ({selectedManuscript?.complianceReport?.length || 0})
+                        Compliance ({selectedManuscript?.complianceReport?.length || 0})
                     </button>
                     <button onClick={() => setReportTab('structure')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'structure' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>
-                        Structural Analysis ({selectedManuscript?.structuralReport?.length || 0})
+                        Structure ({selectedManuscript?.structuralReport?.length || 0})
+                    </button>
+                     <button onClick={() => setReportTab('readability')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'readability' ? 'border-b-2 border-indigo-500 text-indigo-400' : 'text-slate-400 hover:text-white'}`}>
+                        Readability ({selectedManuscript?.readabilityReport?.length || 0})
                     </button>
                 </div>
 
@@ -362,6 +389,29 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                                     <p><strong className="font-medium text-teal-400">Location:</strong> <span className="text-slate-300">{finding.location}</span></p>
                                     <p><strong className="font-medium text-teal-400">Details:</strong> <span className="text-slate-300">{finding.details}</span></p>
                                     <p><strong className="font-medium text-teal-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
+                               </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {reportTab === 'readability' && (
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.readabilityReport || []).length === 0 && <p className="text-center text-slate-500">No readability issues found.</p>}
+                        {selectedManuscript?.readabilityReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4">
+                               <div className="flex items-start justify-between gap-4">
+                                    <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.issueCategory}</h4>
+                                    {renderPriorityVisuals(finding.priority).icon}
+                               </div>
+                               <div className="flex items-center justify-between mb-3">
+                                   <p className="text-sm text-slate-400 italic">"{finding.summary}"</p>
+                                   {renderPriorityVisuals(finding.priority).tag}
+                               </div>
+                               <div className="space-y-3 text-sm">
+                                    <p><strong className="font-medium text-indigo-400">Location:</strong> <span className="text-slate-300">{finding.location}</span></p>
+                                    <p><strong className="font-medium text-indigo-400">Details:</strong> <span className="text-slate-300">{finding.details}</span></p>
+                                    {finding.quote && <p><strong className="font-medium text-indigo-400">Quote:</strong> <span className="text-slate-300 italic">"{finding.quote}"</span></p>}
+                                    <p><strong className="font-medium text-indigo-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
                                </div>
                             </div>
                         ))}
