@@ -1,6 +1,5 @@
-
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -118,20 +117,43 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
     }
 };
 
-// FIX: Added schema for book metadata extraction.
 const BOOK_METADATA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
         onix: {
             type: Type.STRING,
-            description: 'The full ONIX 3.0 metadata record for the book, formatted as an XML string. This should be a complete and valid ONIX file content.'
+            description: 'A complete and well-formed ONIX 3.0 XML document containing all extracted metadata. This should include all mandatory fields for distribution platforms.'
         },
         marc: {
             type: Type.STRING,
-            description: 'The full MARC21 metadata record for the book, formatted as a human-readable string. Each field should be on a new line, starting with the three-digit MARC tag (e.g., "245 10 $a Title...").'
+            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Author Name.`'
         }
     },
     required: ['onix', 'marc']
+};
+
+const JOURNAL_RECOMMENDATION_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            journalName: { type: Type.STRING, description: "The full name of the recommended journal." },
+            publisher: { type: Type.STRING, description: "The publisher of the journal." },
+            issn: { type: Type.STRING, description: "The ISSN of the journal, if available." },
+            field: { type: Type.STRING, description: "The primary research field of the journal (e.g., 'Biomedical Engineering', 'Astrophysics')." },
+            reasoning: { type: Type.STRING, description: "A concise explanation for why this journal is a good fit, based on the manuscript's content, style, and references." },
+        },
+        required: ['journalName', 'publisher', 'field', 'reasoning'],
+    }
+};
+
+const COMPLIANCE_AND_RECOMMENDATION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        complianceFindings: COMPLIANCE_SCHEMA,
+        journalRecommendations: JOURNAL_RECOMMENDATION_SCHEMA
+    },
+    required: ['complianceFindings']
 };
 
 const MAX_RETRIES = 5;
@@ -255,16 +277,24 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
     }
 }
 
-export async function performComplianceCheck(manuscriptText: string, rulesText: string, modelName: string): Promise<ComplianceFinding[]> {
+export async function performComplianceCheck(manuscriptText: string, rulesText: string, modelName: string, isFirstChunk: boolean): Promise<{ findings: ComplianceFinding[]; recommendations: JournalRecommendation[] }> {
+    const journalRecommendationInstruction = isFirstChunk ? `
+        **2. Journal Recommendation System:**
+        Based on the manuscript's abstract, keywords, structure, and references, suggest 3-5 suitable journals for submission. Provide metadata for each recommendation according to the schema. Base this *only* on the content of this first chunk.
+    ` : `
+        **2. Journal Recommendation System:**
+        This is not the first chunk of the manuscript. Do not provide journal recommendations. Return an empty array for 'journalRecommendations'.
+    `;
+
     const prompt = `
-        You are a meticulous compliance editor. Your task is to compare the provided 'MANUSCRIPT CHUNK' against the provided 'RULES DOCUMENT'.
-        Analyze the RULES DOCUMENT to understand all submission rules.
-        Then, carefully check the MANUSCRIPT CHUNK against each rule.
-        For every rule that you can verify (either pass or fail) based *only* on the content within this specific CHUNK, provide a compliance finding according to the provided JSON schema. If evidence for a rule is not present in this chunk, do not report on it.
-        - If the chunk complies with a rule, mark it as 'pass'.
-        - If it clearly violates a rule, mark it as 'fail'.
-        - If compliance is ambiguous, mark it as 'warn'.
-        - Provide exact quotes and page numbers from both documents for every finding.
+        You are a meticulous compliance editor and an expert in academic publishing. Perform two tasks on the 'MANUSCRIPT CHUNK'.
+
+        **1. Compliance Check:**
+        Compare the chunk against the 'RULES DOCUMENT'. For every rule you can verify, provide a finding. If evidence is not present, do not report on that rule.
+
+        ${journalRecommendationInstruction}
+
+        Return your entire response as a single JSON object adhering to the schema, containing both 'complianceFindings' and 'journalRecommendations'.
 
         MANUSCRIPT CHUNK:
         ${manuscriptText}
@@ -279,21 +309,22 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
-                responseSchema: COMPLIANCE_SCHEMA,
+                responseSchema: COMPLIANCE_AND_RECOMMENDATION_SCHEMA,
             },
         }));
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        
         const jsonText = response.text?.trim();
         if (!jsonText) {
-            console.warn("API returned empty response for compliance check, returning empty array.");
-            return [];
+            console.warn("API returned empty response for compliance check.");
+            return { findings: [], recommendations: [] };
         }
         const parsedJson = JSON.parse(jsonText);
-        if (!Array.isArray(parsedJson)) {
-            console.warn("API returned non-array for compliance check, returning empty array.", parsedJson);
-            return [];
-        }
-        return parsedJson;
+        
+        const findings = Array.isArray(parsedJson.complianceFindings) ? parsedJson.complianceFindings : [];
+        const recommendations = isFirstChunk && Array.isArray(parsedJson.journalRecommendations) ? parsedJson.journalRecommendations : [];
+        
+        return { findings, recommendations };
+
     } catch (error) {
         console.error("Error calling AI service for compliance check:", error);
         throw new Error("Failed to perform compliance check with the AI service.");
@@ -379,21 +410,47 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
     }
 }
 
-// FIX: Added missing function to extract book metadata.
-export async function extractBookMetadata(manuscriptText: string, modelName: string): Promise<{ onix: string; marc: string; }> {
+export async function extractBookMetadata(fullText: string, modelName: string): Promise<{ onix: string; marc: string }> {
     const prompt = `
-        You are an expert librarian and metadata specialist. Your task is to analyze the full text of the provided book or journal and generate comprehensive, distribution-ready metadata in both ONIX 3.0 (XML) and MARC21 (human-readable) formats.
+        You are an expert metadata librarian and publishing professional. Your task is to analyze the full text of the provided book or journal and extract comprehensive bibliographic metadata required for commercial distribution and library cataloging. Generate two distinct, standards-compliant metadata records.
 
-        **Instructions:**
-        1.  **Analyze the Content:** Read through the provided text, which may include the cover, title page, copyright page, table of contents, and chapters.
-        2.  **Extract Key Information:** Identify all relevant metadata fields, including but not limited to: Title, Subtitle, Author(s), Editor(s), Publisher, Publication Date, ISBN, DOI, Series Information, Edition, Abstract/Description, Keywords, and Table of Contents.
-        3.  **Generate ONIX 3.0:** Create a complete and valid ONIX 3.0 XML record. Ensure all necessary tags are present and correctly structured.
-        4.  **Generate MARC21:** Create a complete MARC21 record in a human-readable format. Each field must start on a new line with its corresponding 3-digit tag (e.g., '100', '245', '260').
+        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms. Pay close attention to:
+            - **RecordReference:** A unique identifier for this ONIX record.
+            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13"), ISSN, and DOI.
+            - **DescriptiveDetail:**
+                - **TitleDetail:** Full title, subtitle. For journals, include Volume and Issue numbers (e.g., using <PartNumber> for issue).
+                - **Contributor:** All authors, editors, etc., with correct roles and biographical notes if available.
+                - **Language:** Language of the text.
+                - **Extent:** Total number of pages (use ExtentType '00' and ExtentUnit '03').
+                - **Subject:** Provide multiple subject headings using both BISAC (for North America) and Thema (international) schemes. Extract keywords and topics from the text to generate these.
+            - **CollateralDetail:**
+                - **TextContent:** Include a detailed summary/description (TextType code 03) and a full table of contents (TextType code 04) if present in the source text. Also include promotional text or keywords.
+            - **PublishingDetail:**
+                - **Publisher:** Full publisher name.
+                - **PublishingDate:** Date of publication.
+            - **ProductSupply:**
+                - **SupplyDetail:** Include supplier information and at least one price (e.g., US Dollar).
 
-        Return the result as a single JSON object with two keys: "onix" and "marc".
+        2.  **MARC21:** Create a human-readable text representation of a MARC21 record, ready for library systems. Each field must be on a new line, formatted precisely with the MARC tag, indicators, and subfield codes (e.g., \`100 1# $a Smith, John.\`). Include all essential fields:
+            - **Leader:** A placeholder is acceptable if you cannot generate a valid one.
+            - **008:** Fixed-Length Data Elements (Date of publication, language, etc.).
+            - **020:** ISBN ($a).
+            - **022:** ISSN ($a).
+            - **082:** Dewey Decimal Classification (if it can be inferred).
+            - **100:** Main Entry - Personal Name ($a Author Name, $d dates if available).
+            - **245:** Title Statement ($a Title : $b subtitle / $c statement of responsibility).
+            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Publisher Name, $c Date).
+            - **300:** Physical Description ($a number of pages : $b other physical details ; $c dimensions).
+            - **505:** Formatted Contents Note (Table of Contents).
+            - **520:** Summary Note (A full, detailed summary or abstract).
+            - **650:** Subject Added Entry - Topical Term ($a Topic -- $z Geographic subdivision). Generate multiple relevant subjects based on the content, including keywords and taxonomy.
+            - **655:** Index Term - Genre/Form ($a Genre).
+            - **773:** Host Item Entry (For journal articles, to contain journal title, Volume, Issue, and date information. e.g., $t Journal Title $g Vol. 12, Iss. 3 (2024)).
 
-        BOOK/JOURNAL TEXT:
-        ${manuscriptText}
+        Extract this information meticulously from the following document text.
+
+        DOCUMENT TEXT:
+        ${fullText}
     `;
 
     try {
@@ -405,16 +462,16 @@ export async function extractBookMetadata(manuscriptText: string, modelName: str
                 responseSchema: BOOK_METADATA_SCHEMA,
             },
         }));
-        
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
         const jsonText = response.text?.trim();
         if (!jsonText) {
-            throw new Error("API returned empty response for book metadata.");
+            throw new Error("API returned empty response for book metadata extraction.");
         }
         const parsedJson = JSON.parse(jsonText);
-        if (typeof parsedJson !== 'object' || parsedJson === null || !('onix' in parsedJson) || !('marc' in parsedJson)) {
-            throw new Error("API returned invalid format for book metadata.");
+        if (typeof parsedJson.onix !== 'string' || typeof parsedJson.marc !== 'string') {
+            throw new Error("API response did not contain the expected 'onix' and 'marc' string properties.");
         }
-        return parsedJson as { onix: string; marc: string; };
+        return parsedJson;
     } catch (error) {
         console.error("Error calling AI service for book metadata extraction:", error);
         throw new Error("Failed to extract book metadata with the AI service.");

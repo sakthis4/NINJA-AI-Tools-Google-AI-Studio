@@ -106,6 +106,14 @@ export interface ManuscriptIssue {
     recommendation: string;
 }
 
+export interface JournalRecommendation {
+    journalName: string;
+    publisher: string;
+    issn?: string;
+    field: string;
+    reasoning: string;
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -125,6 +133,7 @@ export interface ManuscriptFile {
   status: ManuscriptStatus;
   complianceReport?: ComplianceFinding[];
   analysisReport?: ManuscriptIssue[];
+  journalRecommendations?: JournalRecommendation[];
   logs?: string[];
   progress?: number;
 }

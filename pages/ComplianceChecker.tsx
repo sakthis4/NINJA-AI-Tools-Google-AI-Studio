@@ -5,14 +5,14 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, BookOpenIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { performComplianceCheck } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -132,13 +132,13 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             const fileObject = transientFiles.current.get(manuscriptId);
             
             if (!manuscript || !folder || !folder.profileId || !fileObject) {
-                addComplianceLog(manuscriptId, "ERROR: Config or file content not found.");
+                addComplianceLog(manuscriptId, "ERROR: Config or file content not found. A profile must be mapped to the folder.");
                 updateComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             const profile = profiles.find(p => p.id === folder.profileId);
             if (!profile || profile.ruleFileIds.length === 0) {
-                addComplianceLog(manuscriptId, `ERROR: Profile '${profile?.name || 'Unknown'}' empty.`);
+                addComplianceLog(manuscriptId, `ERROR: Profile '${profile?.name || 'Unknown'}' is empty.`);
                 updateComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
@@ -158,20 +158,26 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
 
                 let allFindings: ComplianceFinding[] = [];
+                let allRecommendations: JournalRecommendation[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
                     updateComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
                     addComplianceLog(manuscriptId, `Processing chunk ${index + 1}/${textChunks.length}...`);
                     try {
-                        const reportForChunk = await performComplianceCheck(chunk, rulesText, selectedModel);
-                        if (reportForChunk.length > 0) {
-                            addComplianceLog(manuscriptId, `Found ${reportForChunk.length} potential issues in chunk ${index + 1}.`);
-                            allFindings.push(...reportForChunk);
+                        const isFirstChunk = index === 0;
+                        const { findings, recommendations } = await performComplianceCheck(chunk, rulesText, selectedModel, isFirstChunk);
+                        if (findings.length > 0) {
+                            addComplianceLog(manuscriptId, `Found ${findings.length} compliance issues in chunk ${index + 1}.`);
+                            allFindings.push(...findings);
+                        }
+                        if (isFirstChunk && recommendations.length > 0) {
+                            addComplianceLog(manuscriptId, `Received ${recommendations.length} journal recommendations.`);
+                            allRecommendations.push(...recommendations);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
-                addComplianceLog(manuscriptId, `API calls successful. Found ${allFindings.length} items.`);
+                addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items and ${allRecommendations.length} journal recommendations.`);
                 addUsageLog({ 
                     userId: currentUser!.id, 
                     toolName: 'Compliance Checker', 
@@ -179,7 +185,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     outputId: manuscriptId,
                     outputName: fileObject.name,
                 });
-                updateComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
+                updateComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, journalRecommendations: allRecommendations, progress: 100 });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
                 updateComplianceManuscript(manuscriptId, { status: 'error' });
@@ -198,6 +204,17 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
         
+        if (manuscript.journalRecommendations && manuscript.journalRecommendations.length > 0) {
+            content += `\n---\n\nJOURNAL RECOMMENDATIONS:\n\n`;
+            manuscript.journalRecommendations.forEach(rec => {
+                content += `Journal: ${rec.journalName}\n`;
+                content += `Publisher: ${rec.publisher}\n`;
+                if (rec.issn) content += `ISSN: ${rec.issn}\n`;
+                content += `Field: ${rec.field}\n`;
+                content += `Reasoning: ${rec.reasoning}\n\n`;
+            });
+        }
+
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -216,7 +233,12 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
-                        <p className="text-sm text-slate-500">A two-step process to configure rules and check manuscripts.</p>
+                        <p className="text-sm text-slate-500 mt-1">Check manuscripts against submission guidelines and receive journal recommendations.</p>
+                         <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
+                            <li>Compare manuscripts against custom rule profiles.</li>
+                            <li>Generate a detailed compliance report with actionable feedback.</li>
+                            <li>Receive AI-powered journal recommendations based on your manuscript's content.</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -282,7 +304,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </Modal>
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Compliance Report: ${selectedManuscript?.name}`}>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {selectedManuscript?.complianceReport?.length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
+                    {(selectedManuscript?.complianceReport || []).length === 0 && (selectedManuscript?.journalRecommendations || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found and no journal recommendations were generated.</p>}
                     {selectedManuscript?.complianceReport?.map((finding, index) => (
                         <div key={index} className="bg-slate-900 rounded-lg p-4">
                            <div className="flex items-start justify-between gap-4">
@@ -296,6 +318,26 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                            </div>
                         </div>
                     ))}
+                    {selectedManuscript?.journalRecommendations && selectedManuscript.journalRecommendations.length > 0 && (
+                        <div className="mt-6">
+                            <h4 className="text-xl font-semibold text-slate-200 mb-4 border-t border-slate-700 pt-6">Journal Recommendations</h4>
+                            <div className="space-y-4">
+                                {selectedManuscript.journalRecommendations.map((rec, index) => (
+                                    <div key={index} className="bg-slate-900 rounded-lg p-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-2 bg-purple-900/50 border border-purple-500/50 rounded-full"><BookOpenIcon className="h-6 w-6 text-purple-400" /></div>
+                                            <div className="flex-1">
+                                                <h5 className="font-semibold text-lg text-slate-100">{rec.journalName}</h5>
+                                                <p className="text-sm text-slate-400">{rec.publisher} {rec.issn && `• ISSN: ${rec.issn}`}</p>
+                                                <p className="mt-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-900/50 text-purple-400 inline-block">{rec.field}</p>
+                                            </div>
+                                        </div>
+                                        <p className="mt-3 text-sm text-slate-300"><strong className="font-medium text-purple-400">Reasoning:</strong> {rec.reasoning}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <div className="text-center pt-2"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
                 </div>
             </Modal>
@@ -309,7 +351,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 };
 
 const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
-    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
+    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden transition-all duration-300">
             <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
@@ -324,7 +366,7 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
                 <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Add Rule Document(s) (.pdf)</p>
+                    <p className="mt-2 text-sm">Add Rule Document(s) (.pdf, .docx)</p>
                     <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
                         <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
                         <span>Your files are processed securely.</span>
