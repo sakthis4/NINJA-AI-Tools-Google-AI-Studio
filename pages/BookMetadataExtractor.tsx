@@ -5,7 +5,7 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, XIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, CheckIcon, ExclamationIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
@@ -32,7 +32,7 @@ async function extractTextFromFile(file: File): Promise<string> {
     }
 }
 
-const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => {
+const EditableCodeBlock: React.FC<{ code: string; language: string; onChange: (newCode: string) => void; }> = ({ code, language, onChange }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = () => {
@@ -42,16 +42,20 @@ const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, languag
     };
 
     return (
-        <div className="bg-slate-900 rounded-lg overflow-hidden my-4 relative">
+        <div className="bg-slate-900 rounded-lg overflow-hidden my-4 relative border border-slate-700 focus-within:ring-2 focus-within:ring-green-500">
             <div className="flex justify-between items-center px-4 py-2 bg-slate-700">
                 <span className="text-xs font-semibold text-slate-300 uppercase">{language}</span>
                 <button onClick={handleCopy} className="text-xs text-white bg-slate-600 hover:bg-slate-500 rounded px-2 py-1">
                     {copied ? 'Copied!' : 'Copy'}
                 </button>
             </div>
-            <pre className="p-4 text-sm text-white overflow-x-auto max-h-96">
-                <code>{code}</code>
-            </pre>
+            <textarea
+                value={code}
+                onChange={(e) => onChange(e.target.value)}
+                className="w-full p-4 text-sm text-white bg-slate-900 font-mono border-0 focus:ring-0 resize-y"
+                style={{ height: '24rem' }}
+                spellCheck="false"
+            />
         </div>
     );
 };
@@ -232,14 +236,76 @@ const BookFileRow: React.FC<{ bookFile: BookFile; onView: (id: string) => void; 
 };
 
 const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ bookFile, onBack }) => {
+    const { setStatusBarMessage, updateBookFile } = useAppContext();
     const [activeTab, setActiveTab] = useState<'onix' | 'marc'>('onix');
-    const { setStatusBarMessage } = useAppContext();
+    const [editableOnix, setEditableOnix] = useState(bookFile.onixMetadata || 'No ONIX metadata generated.');
+    const [editableMarc, setEditableMarc] = useState(bookFile.marcMetadata || 'No MARC metadata generated.');
+    const [hasChanges, setHasChanges] = useState(false);
+    const [onixValidation, setOnixValidation] = useState<{ isValid: boolean; error: string | null }>({ isValid: true, error: null });
+    const [marcValidation, setMarcValidation] = useState<{ isValid: boolean; error: string | null }>({ isValid: true, error: null });
+
+    const validateOnix = (xmlString: string) => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlString, "application/xml");
+        const parserError = doc.getElementsByTagName("parsererror");
+        if (parserError.length > 0) {
+            return { isValid: false, error: "Invalid XML structure. Check for unclosed tags or syntax errors." };
+        }
+        return { isValid: true, error: null };
+    };
+
+    const validateMarc = (marcString: string) => {
+        const lines = marcString.split('\n');
+        const marcLineRegex = /^(LDR|\d{3})\s.{5,}/;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line && !marcLineRegex.test(line)) {
+                return { isValid: false, error: `MARC format error on line ${i + 1}. Each line should start with a 3-digit tag.` };
+            }
+        }
+        return { isValid: true, error: null };
+    };
+
+    useEffect(() => {
+        setOnixValidation(validateOnix(editableOnix));
+    }, [editableOnix]);
+
+    useEffect(() => {
+        setMarcValidation(validateMarc(editableMarc));
+    }, [editableMarc]);
+
+    const handleOnixChange = (newCode: string) => {
+        setEditableOnix(newCode);
+        setHasChanges(true);
+    };
+
+    const handleMarcChange = (newCode: string) => {
+        setEditableMarc(newCode);
+        setHasChanges(true);
+    };
+
+    const handleSaveChanges = () => {
+        if (!onixValidation.isValid) {
+            setStatusBarMessage(onixValidation.error || 'Invalid ONIX data.', 'error');
+            return;
+        }
+        if (!marcValidation.isValid) {
+            setStatusBarMessage(marcValidation.error || 'Invalid MARC data.', 'error');
+            return;
+        }
+        updateBookFile(bookFile.id, {
+            onixMetadata: editableOnix,
+            marcMetadata: editableMarc,
+        });
+        setHasChanges(false);
+        setStatusBarMessage('Changes saved successfully!', 'success');
+    };
 
     const handleDownload = (format: 'onix' | 'marc') => {
-        const content = format === 'onix' ? bookFile.onixMetadata : bookFile.marcMetadata;
+        const content = format === 'onix' ? editableOnix : editableMarc;
         const mimeType = format === 'onix' ? 'application/xml' : 'text/plain';
         const fileExtension = format === 'onix' ? 'xml' : 'mrc';
-        if (!content) {
+        if (!content || content.startsWith('No')) {
             setStatusBarMessage('No content to download.', 'error');
             return;
         }
@@ -254,6 +320,8 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
         URL.revokeObjectURL(a.href);
         setStatusBarMessage(`Downloading ${format.toUpperCase()} file.`, 'success');
     };
+    
+    const isSaveDisabled = !hasChanges || !onixValidation.isValid || !marcValidation.isValid;
 
     return (
         <div className="h-full flex flex-col p-4 md:p-6 lg:p-8">
@@ -262,9 +330,17 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Metadata for: {bookFile.name}</h2>
-                        <p className="text-sm text-slate-500">Review the generated ONIX and MARC records.</p>
+                        <p className="text-sm text-slate-500">Review and refine the generated ONIX and MARC records.</p>
                     </div>
                 </div>
+                <button
+                    onClick={handleSaveChanges}
+                    disabled={isSaveDisabled}
+                    className="flex items-center px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed shadow-md transition-colors"
+                >
+                    <CheckIcon className="h-5 w-5 mr-2"/>
+                    Save Changes
+                </button>
             </div>
 
             <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
@@ -276,19 +352,35 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
                 {activeTab === 'onix' && (
                     <div className="animate-fade-in">
                         <div className="flex justify-between items-center mb-2">
-                            <h3 className="text-lg font-semibold">ONIX 3.0 Record (XML)</h3>
+                            <div className="flex items-center gap-2 group relative">
+                                <h3 className="text-lg font-semibold">ONIX 3.0 Record (XML)</h3>
+                                {onixValidation.isValid ? <CheckIcon className="h-5 w-5 text-green-500" /> : <ExclamationIcon className="h-5 w-5 text-red-500" />}
+                                {!onixValidation.isValid && onixValidation.error && (
+                                    <div className="absolute bottom-full left-0 mb-2 w-max px-2 py-1 bg-slate-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        {onixValidation.error}
+                                    </div>
+                                )}
+                            </div>
                             <button onClick={() => handleDownload('onix')} className="flex items-center px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"><DownloadIcon className="h-4 w-4 mr-2"/>Download .xml</button>
                         </div>
-                        <CodeBlock code={bookFile.onixMetadata || 'No ONIX metadata generated.'} language="xml" />
+                        <EditableCodeBlock code={editableOnix} onChange={handleOnixChange} language="xml" />
                     </div>
                 )}
                 {activeTab === 'marc' && (
                     <div className="animate-fade-in">
                         <div className="flex justify-between items-center mb-2">
-                            <h3 className="text-lg font-semibold">MARC21 Record (Human-Readable)</h3>
+                             <div className="flex items-center gap-2 group relative">
+                                <h3 className="text-lg font-semibold">MARC21 Record (Human-Readable)</h3>
+                                {marcValidation.isValid ? <CheckIcon className="h-5 w-5 text-green-500" /> : <ExclamationIcon className="h-5 w-5 text-red-500" />}
+                                {!marcValidation.isValid && marcValidation.error && (
+                                    <div className="absolute bottom-full left-0 mb-2 w-max px-2 py-1 bg-slate-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        {marcValidation.error}
+                                    </div>
+                                )}
+                            </div>
                             <button onClick={() => handleDownload('marc')} className="flex items-center px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"><DownloadIcon className="h-4 w-4 mr-2"/>Download .mrc</button>
                         </div>
-                        <CodeBlock code={bookFile.marcMetadata || 'No MARC metadata generated.'} language="text" />
+                        <EditableCodeBlock code={editableMarc} onChange={handleMarcChange} language="text" />
                     </div>
                 )}
             </div>
