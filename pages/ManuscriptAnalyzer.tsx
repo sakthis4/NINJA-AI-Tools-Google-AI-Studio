@@ -222,6 +222,9 @@ const ManuscriptAnalyzer: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                      <div className="bg-yellow-900/50 border border-yellow-500/50 text-yellow-300 text-xs rounded-lg p-3">
                         <p><strong className="font-bold">Plagiarism Disclaimer:</strong> The 'Plagiarism Concern' category flags text that appears unoriginal based on the model's training data. It is not a substitute for a dedicated plagiarism detection service (e.g., Turnitin) and should be used as a guide for further review.</p>
                     </div>
+                     <div className="bg-slate-900/50 border border-slate-700 text-slate-400 text-xs rounded-lg p-3">
+                        <p><strong className="font-bold text-slate-300">Identifier Disclaimer:</strong> The 'Identifier Integrity' check flags identifiers (e.g., DOIs) that appear malformed or incorrectly formatted. The AI cannot verify if a link is active or resolves correctly on the web. This check should be used as a guide for manual verification.</p>
+                    </div>
                     {sortedIssues.length === 0 && <p className="text-center text-slate-500">No issues found in the analysis.</p>}
                     {sortedIssues.map((finding, index) => (
                         <div key={index} className="bg-slate-900 rounded-lg p-4">

@@ -98,7 +98,7 @@ export type ManuscriptStatus = 'queued' | 'processing' | 'completed' | 'error';
 export type ManuscriptIssuePriority = 'High' | 'Medium' | 'Low';
 
 export interface ManuscriptIssue {
-    issueCategory: 'Grammar' | 'Plagiarism Concern' | 'Structural Integrity' | 'Clarity' | 'Ethical Concern' | 'Spelling';
+    issueCategory: 'Grammar' | 'Plagiarism Concern' | 'Structural Integrity' | 'Clarity' | 'Ethical Concern' | 'Spelling' | 'Citation Integrity' | 'Identifier Integrity';
     priority: ManuscriptIssuePriority;
     summary: string;
     quote: string;

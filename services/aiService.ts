@@ -106,7 +106,7 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
     items: {
         type: Type.OBJECT,
         properties: {
-            issueCategory: { type: Type.STRING, enum: ['Grammar', 'Plagiarism Concern', 'Structural Integrity', 'Clarity', 'Ethical Concern', 'Spelling'], description: 'The category of the issue found.' },
+            issueCategory: { type: Type.STRING, enum: ['Grammar', 'Plagiarism Concern', 'Structural Integrity', 'Clarity', 'Ethical Concern', 'Spelling', 'Citation Integrity', 'Identifier Integrity'], description: 'The category of the issue found.' },
             priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. High priority issues are critical and must be addressed.' },
             summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
             quote: { type: Type.STRING, description: 'The exact, brief quote from the manuscript where the issue occurs.' },
@@ -300,18 +300,40 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
 
 export async function analyzeManuscript(manuscriptText: string, modelName: string): Promise<ManuscriptIssue[]> {
     const prompt = `
-        You are an expert manuscript editor for a top-tier academic publisher. Your task is to perform a detailed analysis of the provided 'MANUSCRIPT CHUNK'.
-        Your analysis must cover the following areas:
-        1.  **Grammar and Spelling:** Identify and report all grammatical errors, typos, and awkward phrasing.
-        2.  **Clarity and Flow:** Check for unclear sentences, logical inconsistencies, and poor structural flow.
-        3.  **Structural Integrity:** Verify that the manuscript follows a logical structure (e.g., Introduction, Methods, Results, Discussion). Check for issues like missing sections or arguments that do not connect.
-        4.  **Ethical Concerns:** Flag potential ethical issues, such as the lack of a patient consent statement in a medical study or indications of data manipulation.
-        5.  **Plagiarism Concern:** Identify any sentences or paragraphs that are highly unoriginal, use overly complex but generic language, or are phrased in a way that strongly suggests they were copied from another source without proper attribution. You cannot perform a database search, but you can use your knowledge to flag text that is suspicious.
+        You are an expert manuscript editor and technical pre-flight checker for a top-tier academic publisher. Your task is to perform a detailed analysis of the provided 'MANUSCRIPT CHUNK'. Your analysis must cover the following areas, and you must report every issue you find according to the provided JSON schema.
 
-        For every issue you identify, provide a finding according to the provided JSON schema. Order your findings by priority, with 'High' priority items first.
-        - **High Priority:** Critical errors that would prevent publication (e.g., plagiarism concerns, major ethical flags, incomprehensible grammar).
-        - **Medium Priority:** Significant issues that harm readability or professionalism (e.g., structural problems, persistent grammatical errors).
-        - **Low Priority:** Minor issues like typos or occasional awkward phrasing.
+        **1. Standard Editorial Analysis:**
+        - **Grammar and Spelling:** Identify grammatical errors, typos, and awkward phrasing.
+        - **Clarity and Flow:** Check for unclear sentences, logical inconsistencies, and poor structural flow.
+        - **Structural Integrity:** Verify that the manuscript follows a logical structure (e.g., Introduction, Methods, Results, Discussion). Check for issues like missing sections.
+        - **Ethical Concerns:** Flag potential ethical issues, such as the lack of a patient consent statement or indications of data manipulation.
+        - **Plagiarism Concern:** Identify sentences or paragraphs that appear highly unoriginal or are phrased in a way that suggests copying without attribution. This is a flag for human review, not a definitive check.
+
+        **2. Citation Integrity Check (Citation Breaks):**
+        - **Goal:** Find mismatches between in-text citations and the final reference list.
+        - **Process:**
+            a. Scan the entire chunk to identify all in-text citations (e.g., (Smith, 2023), [1], [5, 6], [9-12]).
+            b. Scan the "References" or "Bibliography" section to list all reference entries.
+            c. Cross-reference them. Report any of the following as a 'Citation Integrity' issue:
+               - An in-text citation that does not have a corresponding entry in the reference list.
+               - A reference list entry that is not cited anywhere in the text chunk.
+               - For numbered citations, any breaks in the numerical sequence (e.g., jumps from [15] to [17]).
+        - **Example Finding:** If the text cites "[22]" but reference 22 is missing, report that.
+
+        **3. Identifier Integrity Check (Broken Identifiers):**
+        - **Goal:** Find malformed, invalid, or non-resolvable identifiers within the reference list.
+        - **Process:**
+            a. Scan the reference list for identifiers like DOI, ISBN, ISSN, arXiv ID, and PubMed ID.
+            b. For each identifier, check for common formatting errors. Report any of the following as an 'Identifier Integrity' issue:
+               - **Broken DOI:** A DOI that does not start with a proper protocol (e.g., "https://doi.org/" or "doi:") or appears structurally incorrect.
+               - **Incorrect ISBN/ISSN:** An ISBN or ISSN that has an obviously incorrect number of digits or invalid characters.
+               - **Malformed arXiv/PubMed ID:** An identifier that does not follow the standard format for its type.
+        - **Example Finding:** If a reference has "DOI: 10.1000/xyz" (missing the protocol slash), report it as a broken identifier.
+
+        **Reporting Guidelines:**
+        - For every issue you identify, provide a finding according to the provided JSON schema.
+        - Assign a priority: 'High' (publication-blocking issues like citation breaks), 'Medium' (significant issues like malformed DOIs), 'Low' (minor issues).
+        - Be precise with quotes and page numbers.
 
         MANUSCRIPT CHUNK:
         ${manuscriptText}
