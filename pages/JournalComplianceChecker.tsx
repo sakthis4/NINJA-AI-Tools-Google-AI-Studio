@@ -9,10 +9,10 @@ import {
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { analyzeManuscript, performComplianceCheck, scoreManuscript, analyzeJournalMetadata } from '../services/aiService';
+import { analyzeManuscript, performComplianceCheck, scoreManuscript, analyzeJournalMetadata, simulatePeerReview } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation, ManuscriptIssuePriority, ManuscriptIssue
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation, ManuscriptIssuePriority, ManuscriptIssue, PeerReviewSimulation
 } from '../types';
 import ScoringDashboard from '../components/ScoringDashboard';
 
@@ -90,7 +90,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
-    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring' | 'metadata'>('compliance');
+    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring' | 'metadata' | 'peerReview'>('compliance');
     
     const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
@@ -171,7 +171,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
 
-                const totalSteps = textChunks.length + 3; // Compliance chunks + analysis + scoring + metadata
+                const totalSteps = textChunks.length + 4; // Compliance chunks + analysis + scoring + metadata + peer review
 
                 let allFindings: ComplianceFinding[] = [];
                 let allRecommendations: JournalRecommendation[] = [];
@@ -220,11 +220,21 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
 
                 let metadataReport = null;
                 try {
-                    // Only use the first 15000 chars for metadata analysis to be efficient, as this covers title, abstract, and front matter.
                     metadataReport = await analyzeJournalMetadata(manuscriptText, selectedModel);
                     addComplianceLog(manuscriptId, `Metadata analysis finished.`);
                 } catch (metaError) {
                     addComplianceLog(manuscriptId, `ERROR during metadata analysis: ${metaError instanceof Error ? metaError.message : "Unknown"}`);
+                }
+
+                updateJournalComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 3) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Metadata analysis finished. Starting peer review simulation...`);
+
+                let peerReviewSimulation = null;
+                try {
+                    peerReviewSimulation = await simulatePeerReview(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Peer review simulation finished.`);
+                } catch (reviewError) {
+                    addComplianceLog(manuscriptId, `ERROR during peer review simulation: ${reviewError instanceof Error ? reviewError.message : "Unknown"}`);
                 }
 
                 addUsageLog({ 
@@ -241,6 +251,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                     analysisReport: analysisIssues,
                     scores: scores || undefined,
                     metadataAnalysisReport: metadataReport || undefined,
+                    peerReviewSimulation: peerReviewSimulation || undefined,
                     progress: 100 
                 });
             } catch (error) {
@@ -265,6 +276,18 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 const scoreName = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
                 csvContent += [scoreName, value.score, value.reasoning].map(escapeCsvField).join(',') + '\n';
             }
+            csvContent += '\n';
+        }
+
+        if (manuscript.peerReviewSimulation) {
+            csvContent += '## PEER REVIEW SIMULATION ##\n';
+            csvContent += `Summary,${escapeCsvField(manuscript.peerReviewSimulation.manuscriptSummary)}\n`;
+            csvContent += `Suitability,${escapeCsvField(manuscript.peerReviewSimulation.suitabilityForPeerReview)}\n`;
+            csvContent += `Strengths,"${manuscript.peerReviewSimulation.strengths.join('; ')}"\n`;
+            csvContent += `Weaknesses,"${manuscript.peerReviewSimulation.weaknesses.join('; ')}"\n`;
+            csvContent += `Reviewer Concerns,"${manuscript.peerReviewSimulation.reviewerConcerns.join('; ')}"\n`;
+            csvContent += `Methodological Gaps,${escapeCsvField(manuscript.peerReviewSimulation.methodologicalGaps)}\n`;
+            csvContent += `Reviewer Questions,"${manuscript.peerReviewSimulation.reviewerQuestions.join('; ')}"\n`;
             csvContent += '\n';
         }
 
@@ -350,6 +373,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                                     <li>Perform a full editorial analysis for grammar, clarity, and citation integrity.</li>
                                     <li>Receive a quantitative scoring report on key manuscript quality metrics.</li>
                                     <li>Get AI-powered journal recommendations based on your manuscript's content.</li>
+                                    <li>Mimic peer reviewers with summaries, strengths/weaknesses, and reviewer concerns.</li>
                                 </ul>
                             </div>
                         )}
@@ -357,9 +381,9 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 </div>
             </div>
             
-            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
-                <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
-                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'projects' ? 'border-b-2 border-purple-500 text-purple-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
+            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6 overflow-x-auto">
+                <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
+                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'projects' ? 'border-b-2 border-purple-500 text-purple-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
             </div>
             
             <div className="flex-grow overflow-y-auto">
@@ -417,12 +441,13 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 </form>
             </Modal>
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`} size="2xl">
-                <div className="flex border-b border-slate-700 mb-4">
-                    <button onClick={() => setReportTab('scoring')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'scoring' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>Scoring Report</button>
-                    <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-purple-500 text-purple-400' : 'text-slate-400 hover:text-white'}`}>Compliance ({selectedManuscript?.complianceReport?.length || 0})</button>
-                    <button onClick={() => setReportTab('analysis')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'analysis' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>Manuscript Analysis ({selectedManuscript?.analysisReport?.length || 0})</button>
-                    <button onClick={() => setReportTab('recommendations')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'recommendations' ? 'border-b-2 border-sky-500 text-sky-400' : 'text-slate-400 hover:text-white'}`}>Recommendations ({selectedManuscript?.journalRecommendations?.length || 0})</button>
-                    <button onClick={() => setReportTab('metadata')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'metadata' ? 'border-b-2 border-pink-500 text-pink-400' : 'text-slate-400 hover:text-white'}`}>Metadata Analysis</button>
+                <div className="flex border-b border-slate-700 mb-4 overflow-x-auto">
+                    <button onClick={() => setReportTab('scoring')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'scoring' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>Scoring Report</button>
+                    <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'compliance' ? 'border-b-2 border-purple-500 text-purple-400' : 'text-slate-400 hover:text-white'}`}>Compliance ({selectedManuscript?.complianceReport?.length || 0})</button>
+                    <button onClick={() => setReportTab('analysis')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'analysis' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>Manuscript Analysis ({selectedManuscript?.analysisReport?.length || 0})</button>
+                    <button onClick={() => setReportTab('peerReview')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'peerReview' ? 'border-b-2 border-indigo-500 text-indigo-400' : 'text-slate-400 hover:text-white'}`}>Peer Review</button>
+                    <button onClick={() => setReportTab('recommendations')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'recommendations' ? 'border-b-2 border-sky-500 text-sky-400' : 'text-slate-400 hover:text-white'}`}>Recommendations ({selectedManuscript?.journalRecommendations?.length || 0})</button>
+                    <button onClick={() => setReportTab('metadata')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'metadata' ? 'border-b-2 border-pink-500 text-pink-400' : 'text-slate-400 hover:text-white'}`}>Metadata Analysis</button>
                 </div>
                  <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                     {reportTab === 'scoring' && (selectedManuscript?.scores ? <ScoringDashboard scores={selectedManuscript.scores} /> : <p className="text-center text-slate-500 py-8">Scoring data is not available for this manuscript.</p>)}
@@ -446,7 +471,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                         (selectedManuscript?.analysisReport || []).length === 0 ? <p className="text-center text-slate-500 py-8">No editorial issues found.</p> :
                         selectedManuscript?.analysisReport?.map((finding, index) => (
                             <div key={index} className="bg-slate-900 rounded-lg p-4">
-                               <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start justify-between gap-4">
                                     <h4 className="font-semibold text-lg mb-2 text-slate-200 flex-1">{finding.issueCategory}</h4>
                                     {renderPriorityVisuals(finding.priority).icon}
                                </div>
@@ -461,6 +486,59 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                                </div>
                             </div>
                         ))
+                    )}
+                    {reportTab === 'peerReview' && (
+                        !selectedManuscript?.peerReviewSimulation ? <p className="text-center text-slate-500 py-8">No peer review simulation available.</p> :
+                        <div className="space-y-6">
+                            <div className="bg-slate-900 rounded-lg p-6">
+                                <h4 className="text-lg font-semibold text-indigo-400 mb-2">Manuscript Summary</h4>
+                                <p className="text-slate-300 leading-relaxed">{selectedManuscript.peerReviewSimulation.manuscriptSummary}</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-slate-900 rounded-lg p-6 border-l-4 border-green-500">
+                                    <h4 className="text-lg font-semibold text-green-400 mb-3">Key Strengths</h4>
+                                    <ul className="list-disc list-inside space-y-2 text-slate-300">
+                                        {selectedManuscript.peerReviewSimulation.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                                    </ul>
+                                </div>
+                                <div className="bg-slate-900 rounded-lg p-6 border-l-4 border-red-500">
+                                    <h4 className="text-lg font-semibold text-red-400 mb-3">Weaknesses & Limitations</h4>
+                                    <ul className="list-disc list-inside space-y-2 text-slate-300">
+                                        {selectedManuscript.peerReviewSimulation.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-6">
+                                <h4 className="text-lg font-semibold text-indigo-400 mb-3">Reviewer Concerns</h4>
+                                <ul className="space-y-3">
+                                    {selectedManuscript.peerReviewSimulation.reviewerConcerns.map((c, i) => (
+                                        <li key={i} className="flex items-start gap-3">
+                                            <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-indigo-900 text-indigo-300 rounded-full text-xs font-bold">{i + 1}</span>
+                                            <span className="text-slate-300">{c}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-6">
+                                <h4 className="text-lg font-semibold text-indigo-400 mb-2">Methodological Gaps</h4>
+                                <p className="text-slate-300">{selectedManuscript.peerReviewSimulation.methodologicalGaps}</p>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-6">
+                                <h4 className="text-lg font-semibold text-indigo-400 mb-3">Likely Reviewer Questions</h4>
+                                <ul className="list-disc list-inside space-y-2 text-slate-300">
+                                    {selectedManuscript.peerReviewSimulation.reviewerQuestions.map((q, i) => <li key={i}>{q}</li>)}
+                                </ul>
+                            </div>
+
+                            <div className="bg-gradient-to-r from-indigo-900 to-slate-900 rounded-lg p-6 border border-indigo-700">
+                                <h4 className="text-lg font-semibold text-white mb-2">Suitability for Peer Review</h4>
+                                <p className="text-indigo-200 text-lg font-medium">{selectedManuscript.peerReviewSimulation.suitabilityForPeerReview}</p>
+                            </div>
+                        </div>
                     )}
                     {reportTab === 'recommendations' && (
                         (selectedManuscript?.journalRecommendations || []).length === 0 ? <p className="text-center text-slate-500 py-8">No journal recommendations were generated.</p> :

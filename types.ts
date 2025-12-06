@@ -176,6 +176,16 @@ export interface MetadataAnalysisReport {
     correspondingAuthor: CorrespondingAuthor;
 }
 
+export interface PeerReviewSimulation {
+    manuscriptSummary: string;
+    strengths: string[];
+    weaknesses: string[];
+    reviewerConcerns: string[];
+    methodologicalGaps: string;
+    reviewerQuestions: string[];
+    suitabilityForPeerReview: string;
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -201,6 +211,7 @@ export interface ManuscriptFile {
   journalRecommendations?: JournalRecommendation[];
   scores?: ManuscriptScores;
   metadataAnalysisReport?: MetadataAnalysisReport;
+  peerReviewSimulation?: PeerReviewSimulation;
   logs?: string[];
   progress?: number;
 }

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -272,6 +272,20 @@ const METADATA_ANALYSIS_SCHEMA = {
         }
     },
     required: ['predictedSectionType', 'generatedKeywords', 'orcidValidation', 'fundingMetadata', 'suggestedTaxonomy', 'correspondingAuthor']
+};
+
+const PEER_REVIEW_SIMULATION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        manuscriptSummary: { type: Type.STRING, description: "One-paragraph summary of the manuscript." },
+        strengths: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of key strengths." },
+        weaknesses: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of key weaknesses." },
+        reviewerConcerns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Five likely reviewer concerns." },
+        methodologicalGaps: { type: Type.STRING, description: "Summary of methodological gaps." },
+        reviewerQuestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Questions reviewers will likely ask." },
+        suitabilityForPeerReview: { type: Type.STRING, description: "Assessment of suitability for peer review." }
+    },
+    required: ['manuscriptSummary', 'strengths', 'weaknesses', 'reviewerConcerns', 'methodologicalGaps', 'reviewerQuestions', 'suitabilityForPeerReview']
 };
 
 const BOOK_METADATA_SCHEMA = {
@@ -758,6 +772,42 @@ export async function analyzeJournalMetadata(manuscriptText: string, modelName: 
     } catch (error) {
         console.error("Error calling AI service for metadata analysis:", error);
         throw new Error("Failed to perform metadata analysis.");
+    }
+}
+
+export async function simulatePeerReview(manuscriptText: string, modelName: string): Promise<PeerReviewSimulation> {
+    const prompt = `
+        You are an experienced peer reviewer for a high-impact academic journal. Conduct a preliminary review of the provided manuscript text.
+        
+        Provide the following structured feedback:
+        1. **Manuscript Summary:** A concise one-paragraph summary of the manuscript.
+        2. **Strengths:** A list of the key strengths of the study.
+        3. **Weaknesses:** A list of the key weaknesses or limitations.
+        4. **Reviewer Concerns:** Five specific concerns a reviewer is likely to raise (e.g., statistical methods, sample size, clarity of results).
+        5. **Methodological Gaps:** A summary of any potential methodological gaps or missing information.
+        6. **Reviewer Questions:** Specific questions reviewers will likely ask the authors to clarify.
+        7. **Suitability:** An overall assessment of its suitability for peer review (e.g., "Ready for review", "Needs major revision first").
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 25000)} // Limiting text to ensure fit within context window while providing sufficient detail
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: PEER_REVIEW_SIMULATION_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("API returned empty response for peer review simulation.");
+        return JSON.parse(jsonText);
+    } catch (error) {
+        console.error("Error calling AI service for peer review simulation:", error);
+        throw new Error("Failed to perform peer review simulation.");
     }
 }
 
