@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { MetadataExtractor } from './MetadataExtractor';
 import ImageMetadataExtractor from './ImageMetadataExtractor';
-import ComplianceChecker from './ComplianceChecker';
+import JournalComplianceChecker from './JournalComplianceChecker';
+import BookComplianceChecker from './BookComplianceChecker';
 import { SparklesIcon, PhotographIcon, ComplianceIcon, ManuscriptCheckIcon, BookOpenIcon } from '../components/icons/Icons';
 import ManuscriptAnalyzer from './ManuscriptAnalyzer';
 import BookMetadataExtractor from './BookMetadataExtractor';
 
 export default function Tools() {
-  const [activeTool, setActiveTool] = useState<'pdf' | 'image' | 'compliance' | 'manuscript-analyzer' | 'book-metadata' | null>(null);
+  const [activeTool, setActiveTool] = useState<'pdf' | 'image' | 'journal-compliance' | 'book-compliance' | 'manuscript-analyzer' | 'book-metadata' | null>(null);
 
   if (activeTool === 'pdf') {
     return (
@@ -25,10 +26,18 @@ export default function Tools() {
     );
   }
 
-  if (activeTool === 'compliance') {
+  if (activeTool === 'journal-compliance') {
     return (
       <div className="-m-4 md:-m-6 lg:-m-8 h-[calc(100%+2rem)] md:h-[calc(100%+3rem)] lg:h-[calc(100%+4rem)]">
-        <ComplianceChecker onBack={() => setActiveTool(null)} />
+        <JournalComplianceChecker onBack={() => setActiveTool(null)} />
+      </div>
+    );
+  }
+  
+  if (activeTool === 'book-compliance') {
+    return (
+      <div className="-m-4 md:-m-6 lg:-m-8 h-[calc(100%+2rem)] md:h-[calc(100%+3rem)] lg:h-[calc(100%+4rem)]">
+        <BookComplianceChecker onBack={() => setActiveTool(null)} />
       </div>
     );
   }
@@ -100,7 +109,7 @@ export default function Tools() {
           </div>
         </div>
         
-        {/* Compliance Checker Card */}
+        {/* Journal Compliance Checker Card */}
         <div className="group relative bg-white dark:bg-slate-800 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1">
           <div className="absolute -top-12 -right-12 w-40 h-40 bg-purple-500/20 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
           <div className="p-6 flex flex-col justify-between h-full relative">
@@ -108,13 +117,13 @@ export default function Tools() {
               <div className="p-3 bg-purple-100 dark:bg-purple-900/50 rounded-lg inline-block mb-4">
                 <ComplianceIcon className="h-8 w-8 text-purple-500" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Compliance Checker</h3>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Journal Compliance Checker</h3>
               <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 mb-6">
-                Compare a document against a set of rules (e.g., journal guidelines) to identify and report on non-compliance issues.
+                Checks journal manuscripts against guidelines and provides AI-powered journal recommendations to avoid mismatched submissions.
               </p>
             </div>
             <button
-              onClick={() => setActiveTool('compliance')}
+              onClick={() => setActiveTool('journal-compliance')}
               className="w-full bg-purple-500 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 dark:focus:ring-offset-slate-800 transition-colors duration-300"
             >
               Launch Tool
@@ -165,6 +174,29 @@ export default function Tools() {
             </button>
           </div>
         </div>
+        
+        {/* Book Compliance Checker Card */}
+        <div className="group relative bg-white dark:bg-slate-800 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1">
+          <div className="absolute -top-12 -right-12 w-40 h-40 bg-yellow-500/20 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
+          <div className="p-6 flex flex-col justify-between h-full relative">
+            <div>
+              <div className="p-3 bg-yellow-100 dark:bg-yellow-900/50 rounded-lg inline-block mb-4">
+                <ManuscriptCheckIcon className="h-8 w-8 text-yellow-500" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Book Compliance Checker</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 mb-6">
+                Strictly validates book manuscripts against publisher screening instructions and guidelines for formatting and structure.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveTool('book-compliance')}
+              className="w-full bg-yellow-500 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 dark:focus:ring-offset-slate-800 transition-colors duration-300"
+            >
+              Launch Tool
+            </button>
+          </div>
+        </div>
+
 
       </div>
     </div>

@@ -61,12 +61,10 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
     return <span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[status]}`}>{status}</span>;
 };
 
-const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // FIX: Updated to use specific journal compliance functions from context.
+const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript } = useAppContext();
     const profiles = currentUserData?.complianceProfiles || [];
     const ruleFiles = currentUserData?.ruleFiles || {};
-    // FIX: Updated to use 'journalComplianceFolders' from the user's data store.
     const folders = currentUserData?.journalComplianceFolders || [];
     
     const [activeTab, setActiveTab] = useState<'profiles' | 'projects'>('profiles');
@@ -182,7 +180,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items and ${allRecommendations.length} journal recommendations.`);
                 addUsageLog({ 
                     userId: currentUser!.id, 
-                    toolName: 'Compliance Checker', 
+                    toolName: 'Journal Compliance Checker', 
                     modelName: selectedModel,
                     outputId: manuscriptId,
                     outputName: fileObject.name,
@@ -234,7 +232,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
+                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Journal Compliance Checker</h2>
                         <p className="text-sm text-slate-500 mt-1">Check manuscripts against submission guidelines and receive journal recommendations.</p>
                          <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
                             <li>Compare manuscripts against custom rule profiles.</li>
@@ -428,4 +426,4 @@ const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: Complian
     );
 };
 
-export default ComplianceChecker;
+export default JournalComplianceChecker;

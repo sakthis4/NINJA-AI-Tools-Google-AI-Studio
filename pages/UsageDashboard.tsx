@@ -38,12 +38,28 @@ export default function UsageDashboard() {
     }
 
     try {
-        if (log.toolName === 'Compliance Checker' && log.outputId) {
-            const manuscript = currentUserData.complianceFolders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
+        if ((log.toolName === 'Journal Compliance Checker' || log.toolName === 'Book Compliance Checker') && log.outputId) {
+            const folders = log.toolName === 'Journal Compliance Checker' 
+                ? currentUserData.journalComplianceFolders 
+                : currentUserData.bookComplianceFolders;
+            const manuscript = folders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
+            
             if (manuscript) {
                 const fileName = `${manuscript.name}_compliance.log.txt`;
                 let content = `COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
                 (manuscript.complianceReport || []).forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                
+                if (log.toolName === 'Journal Compliance Checker' && manuscript.journalRecommendations && manuscript.journalRecommendations.length > 0) {
+                    content += `\n---\n\nJOURNAL RECOMMENDATIONS:\n\n`;
+                    manuscript.journalRecommendations.forEach(rec => {
+                        content += `Journal: ${rec.journalName}\n`;
+                        content += `Publisher: ${rec.publisher}\n`;
+                        if (rec.issn) content += `ISSN: ${rec.issn}\n`;
+                        content += `Field: ${rec.field}\n`;
+                        content += `Reasoning: ${rec.reasoning}\n\n`;
+                    });
+                }
+                
                 downloadFile(fileName, content, 'text/plain');
             } else { throw new Error('Could not find the original manuscript data for compliance report.'); }
         } else if (log.toolName === 'Manuscript Analyzer' && log.outputId) {
@@ -84,7 +100,7 @@ export default function UsageDashboard() {
   };
 
   const isDownloadable = (log: UsageLog): boolean => {
-      if (log.toolName === 'Compliance Checker' && log.outputId) return true;
+      if ((log.toolName === 'Journal Compliance Checker' || log.toolName === 'Book Compliance Checker') && log.outputId) return true;
       if (log.toolName === 'Manuscript Analyzer' && log.outputId) return true;
       if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) return true;
       if (log.toolName === 'Image Metadata Generator' && log.reportData) return true;

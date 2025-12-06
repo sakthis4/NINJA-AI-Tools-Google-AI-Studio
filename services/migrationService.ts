@@ -22,7 +22,9 @@ const getStoredValue = <T,>(key: string, defaultValue: T): T => {
 
 const defaultUserDataStore: UserDataStore = {
     metadataFolders: [],
-    complianceFolders: [],
+    // FIX: Replaced incorrect 'complianceFolders' with 'journalComplianceFolders' and 'bookComplianceFolders' to match UserDataStore type.
+    journalComplianceFolders: [],
+    bookComplianceFolders: [],
     analysisFolders: [],
     bookFolders: [],
     complianceProfiles: [],

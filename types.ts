@@ -195,7 +195,8 @@ export interface BookProjectFolder {
 export interface UserDataStore {
   metadataFolders: MetadataProjectFolder[];
   bookFolders: BookProjectFolder[];
-  complianceFolders: ComplianceProjectFolder[];
+  journalComplianceFolders: ComplianceProjectFolder[];
+  bookComplianceFolders: ComplianceProjectFolder[];
   analysisFolders: AnalysisProjectFolder[];
   complianceProfiles: ComplianceProfile[];
   ruleFiles: Record<string, RuleFile>;

@@ -5,14 +5,14 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, BookOpenIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { performComplianceCheck } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -61,13 +61,11 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
     return <span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[status]}`}>{status}</span>;
 };
 
-const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // FIX: Updated to use specific journal compliance functions from context.
-    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createJournalComplianceFolder, deleteJournalComplianceFolder, updateJournalComplianceFolderProfile, addManuscriptsToJournalComplianceFolder, updateJournalComplianceManuscript, deleteJournalComplianceManuscript } = useAppContext();
+const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createBookComplianceFolder, deleteBookComplianceFolder, updateBookComplianceFolderProfile, addManuscriptsToBookComplianceFolder, updateBookComplianceManuscript, deleteBookComplianceManuscript } = useAppContext();
     const profiles = currentUserData?.complianceProfiles || [];
     const ruleFiles = currentUserData?.ruleFiles || {};
-    // FIX: Updated to use 'journalComplianceFolders' from the user's data store.
-    const folders = currentUserData?.journalComplianceFolders || [];
+    const folders = currentUserData?.bookComplianceFolders || [];
     
     const [activeTab, setActiveTab] = useState<'profiles' | 'projects'>('profiles');
     const [processingQueue, setProcessingQueue] = useState<string[]>([]);
@@ -87,9 +85,9 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const formattedMessage = `[${timestamp}] ${message}`;
         const manuscript = folders.flatMap(f => f.manuscripts).find(m => m.id === manuscriptId);
         if (manuscript) {
-            updateJournalComplianceManuscript(manuscriptId, { logs: [...(manuscript.logs || []), formattedMessage] });
+            updateBookComplianceManuscript(manuscriptId, { logs: [...(manuscript.logs || []), formattedMessage] });
         }
-    }, [folders, updateJournalComplianceManuscript]);
+    }, [folders, updateBookComplianceManuscript]);
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
         setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
@@ -115,10 +113,10 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             transientFiles.current.set(id, file);
             return { id, name: file.name, status: 'queued', logs: [], progress: 0 };
         });
-        addManuscriptsToJournalComplianceFolder(folderId, newManuscripts);
+        addManuscriptsToBookComplianceFolder(folderId, newManuscripts);
         setProcessingQueue(prev => [...prev, ...newManuscripts.map(m => m.id)]);
         setStatusBarMessage(`${newManuscripts.length} manuscript(s) added to queue.`, 'info');
-    }, [setStatusBarMessage, addManuscriptsToJournalComplianceFolder]);
+    }, [setStatusBarMessage, addManuscriptsToBookComplianceFolder]);
 
     useEffect(() => {
         const processNextInQueue = async () => {
@@ -135,17 +133,17 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             
             if (!manuscript || !folder || !folder.profileId || !fileObject) {
                 addComplianceLog(manuscriptId, "ERROR: Config or file content not found. A profile must be mapped to the folder.");
-                updateJournalComplianceManuscript(manuscriptId, { status: 'error' });
+                updateBookComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             const profile = profiles.find(p => p.id === folder.profileId);
             if (!profile || profile.ruleFileIds.length === 0) {
                 addComplianceLog(manuscriptId, `ERROR: Profile '${profile?.name || 'Unknown'}' is empty.`);
-                updateJournalComplianceManuscript(manuscriptId, { status: 'error' });
+                updateBookComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             
-            updateJournalComplianceManuscript(manuscriptId, { status: 'processing', progress: 0 });
+            updateBookComplianceManuscript(manuscriptId, { status: 'processing', progress: 0 });
             addComplianceLog(manuscriptId, "Processing started.");
             try {
                 addComplianceLog(manuscriptId, "Extracting text from manuscript...");
@@ -160,44 +158,38 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
 
                 let allFindings: ComplianceFinding[] = [];
-                let allRecommendations: JournalRecommendation[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
-                    updateJournalComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
+                    updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
                     addComplianceLog(manuscriptId, `Processing chunk ${index + 1}/${textChunks.length}...`);
                     try {
-                        const isFirstChunk = index === 0;
-                        const { findings, recommendations } = await performComplianceCheck(chunk, rulesText, selectedModel, isFirstChunk);
+                        const { findings } = await performComplianceCheck(chunk, rulesText, selectedModel, false); // Always false for books
                         if (findings.length > 0) {
                             addComplianceLog(manuscriptId, `Found ${findings.length} compliance issues in chunk ${index + 1}.`);
                             allFindings.push(...findings);
-                        }
-                        if (isFirstChunk && recommendations.length > 0) {
-                            addComplianceLog(manuscriptId, `Received ${recommendations.length} journal recommendations.`);
-                            allRecommendations.push(...recommendations);
                         }
                     } catch (chunkError) { addComplianceLog(manuscriptId, `ERROR processing chunk ${index + 1}: ${chunkError instanceof Error ? chunkError.message : "Unknown"}`); }
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
 
-                addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items and ${allRecommendations.length} journal recommendations.`);
+                addComplianceLog(manuscriptId, `Processing successful. Found ${allFindings.length} compliance items.`);
                 addUsageLog({ 
                     userId: currentUser!.id, 
-                    toolName: 'Compliance Checker', 
+                    toolName: 'Book Compliance Checker', 
                     modelName: selectedModel,
                     outputId: manuscriptId,
                     outputName: fileObject.name,
                 });
-                updateJournalComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, journalRecommendations: allRecommendations, progress: 100 });
+                updateBookComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
-                updateJournalComplianceManuscript(manuscriptId, { status: 'error' });
+                updateBookComplianceManuscript(manuscriptId, { status: 'error' });
             } finally {
                 setIsProcessing(false);
                 setProcessingQueue(q => q.slice(1));
             }
         };
         processNextInQueue();
-    }, [processingQueue, isProcessing, folders, profiles, ruleFiles, addUsageLog, currentUser, addComplianceLog, updateJournalComplianceManuscript, selectedModel]);
+    }, [processingQueue, isProcessing, folders, profiles, ruleFiles, addUsageLog, currentUser, addComplianceLog, updateBookComplianceManuscript, selectedModel]);
 
     const handleDownloadLog = (manuscript: ManuscriptFile) => {
         const fileName = `${manuscript.name}.log.txt`;
@@ -205,17 +197,6 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         (manuscript.complianceReport || []).forEach(f => {
             content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
         });
-        
-        if (manuscript.journalRecommendations && manuscript.journalRecommendations.length > 0) {
-            content += `\n---\n\nJOURNAL RECOMMENDATIONS:\n\n`;
-            manuscript.journalRecommendations.forEach(rec => {
-                content += `Journal: ${rec.journalName}\n`;
-                content += `Publisher: ${rec.publisher}\n`;
-                if (rec.issn) content += `ISSN: ${rec.issn}\n`;
-                content += `Field: ${rec.field}\n`;
-                content += `Reasoning: ${rec.reasoning}\n\n`;
-            });
-        }
 
         const blob = new Blob([content], { type: 'text/plain' });
         const a = document.createElement('a');
@@ -234,12 +215,12 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Compliance Checker</h2>
-                        <p className="text-sm text-slate-500 mt-1">Check manuscripts against submission guidelines and receive journal recommendations.</p>
+                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book Compliance Checker</h2>
+                        <p className="text-sm text-slate-500 mt-1">Strictly validate book manuscripts against screening guidelines.</p>
                          <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
-                            <li>Compare manuscripts against custom rule profiles.</li>
+                            <li>Compare book manuscripts against custom rule profiles.</li>
                             <li>Generate a detailed compliance report with actionable feedback.</li>
-                            <li>Receive AI-powered journal recommendations based on your manuscript's content.</li>
+                            <li>Ensure adherence to publisher screening instructions.</li>
                         </ul>
                     </div>
                 </div>
@@ -247,7 +228,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             
             <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
                 <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
-                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'projects' ? 'border-b-2 border-purple-500 text-purple-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
+                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'projects' ? 'border-b-2 border-yellow-500 text-yellow-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
             </div>
             
             <div className="flex-grow overflow-y-auto">
@@ -272,17 +253,17 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 {activeTab === 'projects' && (
                     <section className="space-y-4 animate-fade-in">
                         <div className="flex justify-between items-center px-2">
-                            <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-fuchsia-500">Project Folders</h3>
-                            <button onClick={() => { setSelectedProfileForFolder(profiles[0]?.id || null); setModal('createFolder')}} className="flex items-center px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>Create Folder</button>
+                            <h3 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-yellow-500 to-orange-500">Project Folders</h3>
+                            <button onClick={() => { setSelectedProfileForFolder(profiles[0]?.id || null); setModal('createFolder')}} className="flex items-center px-3 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>Create Folder</button>
                         </div>
                          {folders.length === 0 ? (
                             <div className="text-center py-16 px-4 border-2 border-dashed rounded-lg">
                                 <FolderIcon className="mx-auto h-12 w-12 text-slate-400" />
                                 <h3 className="mt-2 text-lg font-medium text-slate-800 dark:text-slate-200">No Projects Yet</h3>
-                                <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check manuscripts for compliance.</p>
+                                <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check book manuscripts.</p>
                             </div>
                          ) : (
-                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteJournalComplianceFolder} onMapProfile={(profId) => updateJournalComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteJournalComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteBookComplianceFolder} onMapProfile={(profId) => updateBookComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteBookComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
                          )}
                     </section>
                 )}
@@ -290,23 +271,23 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
             <Modal isOpen={modal === 'createProfile'} onClose={() => setModal(null)} title="Create New Profile">
                 <form onSubmit={(e) => { e.preventDefault(); if (newProfileName.trim()) { createComplianceProfile(newProfileName.trim()); setNewProfileName(''); setModal(null); } }} className="space-y-4">
-                    <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., Journal of Clinical Studies" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
+                    <input type="text" value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="E.g., University Press Style Guide" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
             <Modal isOpen={modal === 'createFolder'} onClose={() => setModal(null)} title="Create New Folder">
-                 <form onSubmit={(e) => { e.preventDefault(); if(newFolderName.trim()) { createJournalComplianceFolder(newFolderName.trim(), selectedProfileForFolder); setNewFolderName(''); setSelectedProfileForFolder(null); setModal(null); } }} className="space-y-4">
-                    <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="E.g., October Submissions" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
+                 <form onSubmit={(e) => { e.preventDefault(); if(newFolderName.trim()) { createBookComplianceFolder(newFolderName.trim(), selectedProfileForFolder); setNewFolderName(''); setSelectedProfileForFolder(null); setModal(null); } }} className="space-y-4">
+                    <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="E.g., Fall Catalog Books" className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600" />
                     <select value={selectedProfileForFolder || ''} onChange={e => setSelectedProfileForFolder(e.target.value || null)} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600">
                         <option value="">No Profile Mapped</option>
                         {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
-                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-purple-500 text-white rounded-md">Create</button></div>
+                    <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-yellow-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Compliance Report: ${selectedManuscript?.name}`}>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {(selectedManuscript?.complianceReport || []).length === 0 && (selectedManuscript?.journalRecommendations || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found and no journal recommendations were generated.</p>}
+                    {(selectedManuscript?.complianceReport || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
                     {selectedManuscript?.complianceReport?.map((finding, index) => (
                         <div key={index} className="bg-slate-900 rounded-lg p-4">
                            <div className="flex items-start justify-between gap-4">
@@ -320,26 +301,6 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                            </div>
                         </div>
                     ))}
-                    {selectedManuscript?.journalRecommendations && selectedManuscript.journalRecommendations.length > 0 && (
-                        <div className="mt-6">
-                            <h4 className="text-xl font-semibold text-slate-200 mb-4 border-t border-slate-700 pt-6">Journal Recommendations</h4>
-                            <div className="space-y-4">
-                                {selectedManuscript.journalRecommendations.map((rec, index) => (
-                                    <div key={index} className="bg-slate-900 rounded-lg p-4">
-                                        <div className="flex items-start gap-4">
-                                            <div className="p-2 bg-purple-900/50 border border-purple-500/50 rounded-full"><BookOpenIcon className="h-6 w-6 text-purple-400" /></div>
-                                            <div className="flex-1">
-                                                <h5 className="font-semibold text-lg text-slate-100">{rec.journalName}</h5>
-                                                <p className="text-sm text-slate-400">{rec.publisher} {rec.issn && `• ISSN: ${rec.issn}`}</p>
-                                                <p className="mt-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-900/50 text-purple-400 inline-block">{rec.field}</p>
-                                            </div>
-                                        </div>
-                                        <p className="mt-3 text-sm text-slate-300"><strong className="font-medium text-purple-400">Reasoning:</strong> {rec.reasoning}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                     <div className="text-center pt-2"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
                 </div>
             </Modal>
@@ -391,7 +352,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
             <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
                 {manuscript.status === 'completed' && (
                     <>
-                        <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/50 rounded-md hover:bg-sky-200 dark:hover:bg-sky-900">View Report</button>
+                        <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-yellow-700 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/50 rounded-md hover:bg-yellow-200 dark:hover:bg-yellow-900">View Report</button>
                         <button onClick={() => onDownloadLog(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
                     </>
                 )}
@@ -399,7 +360,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
                 <button onClick={() => onManuscriptDelete(manuscript.id)} title="Delete" className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"><TrashIcon className="h-4 w-4"/></button>
             </div>
         </div>
-        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
+        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-yellow-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
     </div>
 );
 
@@ -409,12 +370,12 @@ const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: Complian
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
             <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-slate-100 dark:bg-slate-700 border rounded-md p-1 focus:ring-purple-500 focus:border-purple-500"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
+                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-slate-100 dark:bg-slate-700 border rounded-md p-1 focus:ring-yellow-500 focus:border-yellow-500"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
                 <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
             </button>
             {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
                 <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadLog={onDownloadLog} />)}</div>
-                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors">
+                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 text-slate-500 hover:text-yellow-600 dark:hover:text-yellow-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />
                     <p className="mt-2 text-sm">Upload Manuscripts (.pdf, .docx)</p>
@@ -428,4 +389,4 @@ const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: Complian
     );
 };
 
-export default ComplianceChecker;
+export default BookComplianceChecker;
