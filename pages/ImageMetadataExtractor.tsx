@@ -4,7 +4,7 @@ import { ExtractedAsset } from '../types';
 import { useAppContext } from '../hooks/useAppContext';
 import { generateMetadataForImage } from '../services/aiService';
 import Spinner from '../components/Spinner';
-import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, XIcon, ExclamationIcon, ShieldCheckIcon } from '../components/icons/Icons';
+import { UploadIcon, ChevronLeftIcon, SparklesIcon, DownloadIcon, TrashIcon, XIcon, ExclamationIcon, ShieldCheckIcon, ChevronDownIcon } from '../components/icons/Icons';
 
 interface ImageAsset {
     id: string;
@@ -21,6 +21,7 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
     const [status, setStatus] = useState<'idle' | 'processing' | 'done' | 'error'>('idle');
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+    const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
     const onDrop = useCallback((acceptedFiles: File[]) => {
         const newImageAssets: ImageAsset[] = acceptedFiles.map(file => ({
@@ -257,7 +258,17 @@ export default function ImageMetadataExtractor({ onBack }: { onBack: () => void 
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                  <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Generator</h2>
+                    <div>
+                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}>
+                            <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Image Metadata Generator</h2>
+                            <ChevronDownIcon className={`h-5 w-5 text-gray-500 transition-transform duration-300 ${isHeaderExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                        {isHeaderExpanded && (
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 animate-fade-in origin-top">
+                                Upload images (JPG, PNG) to automatically generate accessible metadata including alt text, keywords, and taxonomy.
+                            </p>
+                        )}
+                    </div>
                 </div>
             </div>
             

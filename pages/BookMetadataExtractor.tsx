@@ -5,7 +5,7 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, XIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, CheckIcon, ExclamationIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, CheckIcon, ExclamationIcon, ChevronDownIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
@@ -14,6 +14,7 @@ import { BookFile, BookFileStatus, BookProjectFolder } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
+// ... (keep extractTextFromFile and other helpers as is)
 async function extractTextFromFile(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
 
@@ -110,6 +111,8 @@ const BookMetadataExtractor: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const [modal, setModal] = useState<'createFolder' | 'viewLogs' | null>(null);
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
+    
+    const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
     const addLog = useCallback((bookId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -197,8 +200,13 @@ const BookMetadataExtractor: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book & Journal Metadata Extractor</h2>
-                        <p className="text-sm text-slate-500">Generate ONIX and MARC records from PDF files.</p>
+                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}>
+                            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book & Journal Metadata Extractor</h2>
+                            <ChevronDownIcon className={`h-5 w-5 text-slate-500 transition-transform duration-300 ${isHeaderExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                        {isHeaderExpanded && (
+                            <p className="text-sm text-slate-500 animate-fade-in origin-top">Generate ONIX and MARC records from PDF files.</p>
+                        )}
                     </div>
                 </div>
                 <button onClick={() => setModal('createFolder')} className="flex items-center px-3 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 shadow"><FolderIcon className="h-5 w-5 mr-2"/>New Project</button>
@@ -228,6 +236,7 @@ const BookMetadataExtractor: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     );
 };
 
+// ... (FolderCard, BookFileRow, EditorView, export default BookMetadataExtractor)
 const FolderCard: React.FC<{ folder: BookProjectFolder; isExpanded?: boolean; onDelete: (id: string) => void; onFileDelete: (id: string) => void; onDrop: (files: File[]) => void; onView: (bookId: string) => void; onShowLogs: (book: BookFile) => void; }> = ({ folder, onDelete, onFileDelete, onDrop, onView, onShowLogs }) => {
     const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'] } });
     return (

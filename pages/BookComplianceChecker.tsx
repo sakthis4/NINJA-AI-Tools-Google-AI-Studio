@@ -90,6 +90,8 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
     const [reportTab, setReportTab] = useState<'compliance' | 'structure' | 'readability'>('compliance');
+    
+    const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -269,15 +271,22 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book Compliance Checker</h2>
-                        <p className="text-sm text-slate-500 mt-1">Validate manuscripts against guidelines and analyze chapter-level structure and readability.</p>
-                         <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
-                            <li>Compare book manuscripts against custom rule profiles.</li>
-                            <li>Analyze chapter structure, sequence, and formatting consistency.</li>
-                            <li>Detect missing chapters and word count anomalies.</li>
-                            <li>Score chapter-by-chapter readability and check tone consistency.</li>
-                            <li>Flag unclear language and excessive passive voice with rewrite suggestions.</li>
-                        </ul>
+                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}>
+                            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Book Compliance Checker</h2>
+                            <ChevronDownIcon className={`h-5 w-5 text-slate-500 transition-transform duration-300 ${isHeaderExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                        {isHeaderExpanded && (
+                            <div className="animate-fade-in origin-top">
+                                <p className="text-sm text-slate-500 mt-1">Validate manuscripts against guidelines and analyze chapter-level structure and readability.</p>
+                                <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
+                                    <li>Compare book manuscripts against custom rule profiles.</li>
+                                    <li>Analyze chapter structure, sequence, and formatting consistency.</li>
+                                    <li>Detect missing chapters and word count anomalies.</li>
+                                    <li>Score chapter-by-chapter readability and check tone consistency.</li>
+                                    <li>Flag unclear language and excessive passive voice with rewrite suggestions.</li>
+                                </ul>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

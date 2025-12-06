@@ -428,6 +428,7 @@ export const MetadataExtractor = ({ onBack }: { onBack: () => void }) => {
     const [newFolderName, setNewFolderName] = useState('');
     const [logModalState, setLogModalState] = useState({ isOpen: false, logs: [] as string[], fileName: '' });
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+    const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
     const handleInitialDrop = useCallback((acceptedFiles: File[]) => {
         const newPdfFiles: PdfFile[] = acceptedFiles.map(file => {
@@ -635,7 +636,17 @@ export const MetadataExtractor = ({ onBack }: { onBack: () => void }) => {
             <div className="flex items-center justify-between mb-6 flex-shrink-0">
                 <div className="flex items-center">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 mr-3"><ChevronLeftIcon className="h-5 w-5" /></button>
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">PDF Asset Analyzer</h2>
+                    <div>
+                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}>
+                            <h2 className="text-2xl font-bold text-gray-800 dark:text-white">PDF Asset Analyzer</h2>
+                            <ChevronDownIcon className={`h-5 w-5 text-gray-500 transition-transform duration-300 ${isHeaderExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                        {isHeaderExpanded && (
+                            <p className="text-sm text-gray-500 mt-1 animate-fade-in origin-top">
+                                Analyzes PDF documents to generate accessible metadata like alt text, keywords, and taxonomy for all figures, tables, and images.
+                            </p>
+                        )}
+                    </div>
                 </div>
                  <div className="flex items-center gap-4">
                     <button onClick={() => setCreateFolderModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 shadow"><PlusCircleIcon className="h-5 w-5 mr-2"/>New Folder</button>
