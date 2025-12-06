@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -221,6 +221,59 @@ const MANUSCRIPT_SCORING_SCHEMA = {
     ]
 };
 
+const METADATA_ANALYSIS_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        predictedSectionType: { type: Type.STRING, description: "The likely type of the manuscript (e.g., 'Original Research', 'Review Article', 'Case Study')." },
+        generatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5-7 relevant keywords extracted from the text." },
+        orcidValidation: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    authorName: { type: Type.STRING },
+                    orcid: { type: Type.STRING },
+                    isValid: { type: Type.BOOLEAN, description: "True if the ORCID follows the correct format (16 digits, hyphens optional)." }
+                },
+                required: ['authorName', 'orcid', 'isValid']
+            }
+        },
+        fundingMetadata: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    funderName: { type: Type.STRING },
+                    grantNumber: { type: Type.STRING }
+                },
+                required: ['funderName']
+            }
+        },
+        suggestedTaxonomy: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    scheme: { type: Type.STRING, description: "The taxonomy scheme used (e.g., 'IPTC', 'MeSH')." },
+                    tags: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ['scheme', 'tags']
+            }
+        },
+        correspondingAuthor: {
+            type: Type.OBJECT,
+            properties: {
+                name: { type: Type.STRING },
+                email: { type: Type.STRING },
+                affiliation: { type: Type.STRING },
+                isComplete: { type: Type.BOOLEAN, description: "True if name, email, and affiliation are all present." }
+            },
+            required: ['name', 'email', 'affiliation', 'isComplete']
+        }
+    },
+    required: ['predictedSectionType', 'generatedKeywords', 'orcidValidation', 'fundingMetadata', 'suggestedTaxonomy', 'correspondingAuthor']
+};
+
 const BOOK_METADATA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
@@ -230,7 +283,7 @@ const BOOK_METADATA_SCHEMA = {
         },
         marc: {
             type: Type.STRING,
-            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Author Name.`'
+            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Smith, John.\`). Include all essential fields.'
         }
     },
     required: ['onix', 'marc']
@@ -671,6 +724,40 @@ export async function scoreManuscript(manuscriptText: string, modelName: string)
     } catch (error) {
         console.error("Error calling AI service for manuscript scoring:", error);
         throw new Error("Failed to perform manuscript scoring with the AI service.");
+    }
+}
+
+export async function analyzeJournalMetadata(manuscriptText: string, modelName: string): Promise<MetadataAnalysisReport> {
+    const prompt = `
+        You are an expert metadata specialist for academic publishing. Analyze the provided manuscript text (focusing on the title page, abstract, and declarations) to extract structured metadata.
+
+        1. **Article Type:** Predict the section type (e.g., Research, Review, Case Report).
+        2. **Keywords:** Generate 5-7 relevant keywords.
+        3. **ORCID Validation:** Find author ORCIDs. specific format checking is required (16 digits).
+        4. **Funding:** Extract funder names and grant numbers.
+        5. **Taxonomy:** Suggest classification tags using standard schemes (e.g., MeSH for medical, IPTC for general).
+        6. **Corresponding Author:** Extract details and check if email and affiliation are present.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 15000)} // Limiting text context for metadata which usually appears early
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: METADATA_ANALYSIS_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("API returned empty response for metadata analysis.");
+        return JSON.parse(jsonText);
+    } catch (error) {
+        console.error("Error calling AI service for metadata analysis:", error);
+        throw new Error("Failed to perform metadata analysis.");
     }
 }
 

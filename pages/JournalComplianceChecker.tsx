@@ -9,7 +9,7 @@ import {
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { analyzeManuscript, performComplianceCheck, scoreManuscript } from '../services/aiService';
+import { analyzeManuscript, performComplianceCheck, scoreManuscript, analyzeJournalMetadata } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
     ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation, ManuscriptIssuePriority, ManuscriptIssue
@@ -171,7 +171,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
 
-                const totalSteps = textChunks.length + 2; // Compliance chunks + analysis + scoring
+                const totalSteps = textChunks.length + 3; // Compliance chunks + analysis + scoring + metadata
 
                 let allFindings: ComplianceFinding[] = [];
                 let allRecommendations: JournalRecommendation[] = [];
@@ -215,6 +215,18 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                      addComplianceLog(manuscriptId, `ERROR during manuscript scoring: ${scoringError instanceof Error ? scoringError.message : "Unknown"}`);
                 }
 
+                updateJournalComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 2) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Scoring finished. Starting metadata analysis...`);
+
+                let metadataReport = null;
+                try {
+                    // Only use the first 15000 chars for metadata analysis to be efficient, as this covers title, abstract, and front matter.
+                    metadataReport = await analyzeJournalMetadata(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Metadata analysis finished.`);
+                } catch (metaError) {
+                    addComplianceLog(manuscriptId, `ERROR during metadata analysis: ${metaError instanceof Error ? metaError.message : "Unknown"}`);
+                }
+
                 addUsageLog({ 
                     userId: currentUser!.id, 
                     toolName: 'Journal Compliance Checker', 
@@ -228,6 +240,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                     journalRecommendations: allRecommendations, 
                     analysisReport: analysisIssues,
                     scores: scores || undefined,
+                    metadataAnalysisReport: metadataReport || undefined,
                     progress: 100 
                 });
             } catch (error) {
@@ -573,6 +586,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
     );
 };
 
+// ... (ProfileCard, ManuscriptRow, FolderCard, export default BookComplianceChecker)
 const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
