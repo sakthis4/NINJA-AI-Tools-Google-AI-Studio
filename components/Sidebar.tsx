@@ -48,7 +48,7 @@ export default function Sidebar({ activeView, setActiveView }: SidebarProps) {
   const sidebarContent = (
     <>
       <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} px-4 py-5`}>
-        {!isCollapsed && <h1 className="text-xl font-bold text-slate-800 dark:text-white">S4-AI</h1>}
+        {!isCollapsed && <h1 className="text-xl font-bold text-slate-800 dark:text-white">NINJA AI</h1>}
       </div>
       <nav className="flex-1 px-2 space-y-2">
         {navItems.filter(item => item.visible).map(item => (

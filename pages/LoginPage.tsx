@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAppContext } from '../hooks/useAppContext';
 import { LockClosedIcon } from '../components/icons/Icons';
@@ -56,10 +55,10 @@ export default function LoginPage() {
                 <AnimatedLogo />
             </div>
           <h2 className="text-3xl font-bold text-slate-900 dark:text-white">
-            S4Carlisle AI Tools
+            NINJA AI Hub
           </h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            Sign in to your account
+            by S4Carlisle
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleLogin}>
