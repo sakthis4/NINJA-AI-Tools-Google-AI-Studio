@@ -90,7 +90,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
-    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring'>('compliance');
+    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring' | 'metadata'>('compliance');
 
     const addComplianceLog = useCallback((manuscriptId: string, message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -280,6 +280,23 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
             csvContent += '\n';
         }
 
+        if (manuscript.metadataAnalysisReport) {
+            csvContent += '## METADATA ANALYSIS REPORT ##\n';
+            csvContent += 'Category,Details\n';
+            csvContent += `Predicted Section Type,${escapeCsvField(manuscript.metadataAnalysisReport.predictedSectionType)}\n`;
+            csvContent += `Generated Keywords,"${manuscript.metadataAnalysisReport.generatedKeywords.map(escapeCsvField).join(', ')}"\n`;
+            manuscript.metadataAnalysisReport.orcidValidation.forEach(o => {
+                csvContent += `ORCID Validation,"Author: ${escapeCsvField(o.authorName)}, ORCID: ${escapeCsvField(o.orcid)}, Valid: ${o.isValid}"\n`;
+            });
+            manuscript.metadataAnalysisReport.fundingMetadata.forEach(f => {
+                csvContent += `Funding,"Funder: ${escapeCsvField(f.funderName)}, Grant: ${escapeCsvField(f.grantNumber)}"\n`;
+            });
+             manuscript.metadataAnalysisReport.suggestedTaxonomy.forEach(t => {
+                csvContent += `Taxonomy (${t.scheme}),"${t.tags.map(escapeCsvField).join(', ')}"\n`;
+            });
+            csvContent += '\n';
+        }
+
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -377,14 +394,15 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-purple-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
-            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
+            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`} size="2xl">
                 <div className="flex border-b border-slate-700 mb-4">
                     <button onClick={() => setReportTab('scoring')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'scoring' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>Scoring Report</button>
                     <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-purple-500 text-purple-400' : 'text-slate-400 hover:text-white'}`}>Compliance ({selectedManuscript?.complianceReport?.length || 0})</button>
                     <button onClick={() => setReportTab('analysis')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'analysis' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>Manuscript Analysis ({selectedManuscript?.analysisReport?.length || 0})</button>
                     <button onClick={() => setReportTab('recommendations')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'recommendations' ? 'border-b-2 border-sky-500 text-sky-400' : 'text-slate-400 hover:text-white'}`}>Recommendations ({selectedManuscript?.journalRecommendations?.length || 0})</button>
+                    <button onClick={() => setReportTab('metadata')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'metadata' ? 'border-b-2 border-pink-500 text-pink-400' : 'text-slate-400 hover:text-white'}`}>Metadata Analysis</button>
                 </div>
-                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                 <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                     {reportTab === 'scoring' && (selectedManuscript?.scores ? <ScoringDashboard scores={selectedManuscript.scores} /> : <p className="text-center text-slate-500 py-8">Scoring data is not available for this manuscript.</p>)}
                     {reportTab === 'compliance' && (
                         (selectedManuscript?.complianceReport || []).length === 0 ? <p className="text-center text-slate-500 py-8">No compliance issues found.</p> :
@@ -437,6 +455,102 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                                 <p className="mt-3 text-sm text-slate-300"><strong className="font-medium text-purple-400">Reasoning:</strong> {rec.reasoning}</p>
                             </div>
                         ))
+                    )}
+                    {reportTab === 'metadata' && (
+                        !selectedManuscript?.metadataAnalysisReport ? <p className="text-center text-slate-500 py-8">No metadata analysis available.</p> :
+                        <div className="space-y-6">
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <h4 className="text-lg font-semibold text-pink-400 mb-3">Predicted Section & Keywords</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-sm text-slate-400">Predicted Section Type</p>
+                                        <p className="text-lg font-medium text-slate-200">{selectedManuscript.metadataAnalysisReport.predictedSectionType}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-slate-400 mb-2">Generated Keywords</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedManuscript.metadataAnalysisReport.generatedKeywords.map((kw, i) => (
+                                                <span key={i} className="px-2 py-1 bg-slate-800 text-slate-300 text-xs rounded-full border border-slate-700">{kw}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <h4 className="text-lg font-semibold text-pink-400 mb-3">Corresponding Author</h4>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-md">
+                                        <span className="text-slate-300">Name</span>
+                                        <span className="text-slate-100 font-medium">{selectedManuscript.metadataAnalysisReport.correspondingAuthor.name}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-md">
+                                        <span className="text-slate-300">Email</span>
+                                        <span className="text-slate-100 font-medium">{selectedManuscript.metadataAnalysisReport.correspondingAuthor.email || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-md">
+                                        <span className="text-slate-300">Affiliation</span>
+                                        <span className="text-slate-100 font-medium text-right max-w-xs truncate">{selectedManuscript.metadataAnalysisReport.correspondingAuthor.affiliation || 'N/A'}</span>
+                                    </div>
+                                    <div className="mt-2 text-right">
+                                        {selectedManuscript.metadataAnalysisReport.correspondingAuthor.isComplete ? 
+                                            <span className="text-green-400 text-sm flex items-center justify-end"><CheckIcon className="h-4 w-4 mr-1"/> Information Complete</span> : 
+                                            <span className="text-red-400 text-sm flex items-center justify-end"><XIcon className="h-4 w-4 mr-1"/> Information Incomplete</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <h4 className="text-lg font-semibold text-pink-400 mb-3">ORCID Validation</h4>
+                                {selectedManuscript.metadataAnalysisReport.orcidValidation.length === 0 ? <p className="text-slate-500 text-sm">No ORCIDs found.</p> : 
+                                    <div className="space-y-2">
+                                        {selectedManuscript.metadataAnalysisReport.orcidValidation.map((orcid, i) => (
+                                            <div key={i} className="flex justify-between items-center bg-slate-800/50 p-3 rounded-md border border-slate-700">
+                                                <div>
+                                                    <p className="text-slate-200 font-medium">{orcid.authorName}</p>
+                                                    <p className="text-sm text-slate-400">{orcid.orcid}</p>
+                                                </div>
+                                                {orcid.isValid ? 
+                                                    <span className="px-2 py-1 bg-green-900/50 text-green-400 text-xs rounded border border-green-500/50">Valid</span> : 
+                                                    <span className="px-2 py-1 bg-red-900/50 text-red-400 text-xs rounded border border-red-500/50">Invalid Format</span>
+                                                }
+                                            </div>
+                                        ))}
+                                    </div>
+                                }
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <h4 className="text-lg font-semibold text-pink-400 mb-3">Funding Metadata</h4>
+                                {selectedManuscript.metadataAnalysisReport.fundingMetadata.length === 0 ? <p className="text-slate-500 text-sm">No funding information detected.</p> : 
+                                    <ul className="space-y-2">
+                                        {selectedManuscript.metadataAnalysisReport.fundingMetadata.map((fund, i) => (
+                                            <li key={i} className="bg-slate-800/50 p-3 rounded-md border border-slate-700">
+                                                <p className="text-slate-200 font-medium">{fund.funderName}</p>
+                                                {fund.grantNumber && <p className="text-sm text-slate-400 mt-1">Grant: {fund.grantNumber}</p>}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                }
+                            </div>
+
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <h4 className="text-lg font-semibold text-pink-400 mb-3">Suggested Taxonomy</h4>
+                                <div className="space-y-4">
+                                    {selectedManuscript.metadataAnalysisReport.suggestedTaxonomy.map((tax, i) => (
+                                        <div key={i}>
+                                            <h5 className="text-sm font-semibold text-slate-300 mb-2">{tax.scheme}</h5>
+                                            <div className="flex flex-wrap gap-2">
+                                                {tax.tags.map((tag, j) => (
+                                                    <span key={j} className="px-2 py-1 bg-slate-800 text-sky-300 text-xs rounded border border-sky-900/50">{tag}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
                 <div className="text-center pt-4 border-t border-slate-700 mt-4"><button onClick={() => selectedManuscript && handleDownloadReport(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Report (CSV)</button></div>

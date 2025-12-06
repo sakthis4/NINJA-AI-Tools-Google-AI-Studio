@@ -143,6 +143,39 @@ export interface ManuscriptScores {
     editorAcceptanceLikelihood: { score: number; reasoning: string };
 }
 
+// New interfaces for Metadata Analysis Report
+export interface OrcidValidation {
+    authorName: string;
+    orcid: string;
+    isValid: boolean;
+}
+
+export interface FundingMetadata {
+    funderName: string;
+    grantNumber?: string;
+}
+
+export interface TaxonomySuggestion {
+    scheme: string;
+    tags: string[];
+}
+
+export interface CorrespondingAuthor {
+    name: string;
+    email?: string;
+    affiliation?: string;
+    isComplete: boolean;
+}
+
+export interface MetadataAnalysisReport {
+    predictedSectionType: string;
+    generatedKeywords: string[];
+    orcidValidation: OrcidValidation[];
+    fundingMetadata: FundingMetadata[];
+    suggestedTaxonomy: TaxonomySuggestion[];
+    correspondingAuthor: CorrespondingAuthor;
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -167,6 +200,7 @@ export interface ManuscriptFile {
   readabilityReport?: ReadabilityIssue[];
   journalRecommendations?: JournalRecommendation[];
   scores?: ManuscriptScores;
+  metadataAnalysisReport?: MetadataAnalysisReport;
   logs?: string[];
   progress?: number;
 }

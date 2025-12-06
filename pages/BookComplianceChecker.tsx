@@ -341,7 +341,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     <div className="flex justify-end mt-4 space-x-2"><button type="button" onClick={() => setModal(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 rounded-md">Cancel</button><button type="submit" className="px-4 py-2 bg-yellow-500 text-white rounded-md">Create</button></div>
                 </form>
             </Modal>
-            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`}>
+            <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`} size="2xl">
                 <div className="flex border-b border-slate-700 mb-4">
                     <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>
                         Compliance ({selectedManuscript?.complianceReport?.length || 0})
@@ -355,7 +355,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 </div>
 
                 {reportTab === 'compliance' && (
-                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                         {(selectedManuscript?.complianceReport || []).length === 0 && <p className="text-center text-slate-500">No compliance issues found.</p>}
                         {selectedManuscript?.complianceReport?.map((finding, index) => (
                             <div key={index} className="bg-slate-900 rounded-lg p-4">
@@ -373,7 +373,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     </div>
                 )}
                 {reportTab === 'structure' && (
-                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                         {(selectedManuscript?.structuralReport || []).length === 0 && <p className="text-center text-slate-500">No structural issues found.</p>}
                         {selectedManuscript?.structuralReport?.map((finding, index) => (
                             <div key={index} className="bg-slate-900 rounded-lg p-4">
@@ -395,7 +395,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     </div>
                 )}
                 {reportTab === 'readability' && (
-                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                         {(selectedManuscript?.readabilityReport || []).length === 0 && <p className="text-center text-slate-500">No readability issues found.</p>}
                         {selectedManuscript?.readabilityReport?.map((finding, index) => (
                             <div key={index} className="bg-slate-900 rounded-lg p-4">
