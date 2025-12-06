@@ -12,7 +12,7 @@ import mammoth from 'mammoth';
 import { performComplianceCheck } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ProjectFolder, ManuscriptFile, ManuscriptStatus
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -62,7 +62,7 @@ const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ sta
 };
 
 const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript } = useAppContext();
+    const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToComplianceFolder, updateComplianceManuscript, deleteComplianceManuscript } = useAppContext();
     const profiles = currentUserData?.complianceProfiles || [];
     const ruleFiles = currentUserData?.ruleFiles || {};
     const folders = currentUserData?.complianceFolders || [];
@@ -85,9 +85,9 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const formattedMessage = `[${timestamp}] ${message}`;
         const manuscript = folders.flatMap(f => f.manuscripts).find(m => m.id === manuscriptId);
         if (manuscript) {
-            updateManuscript(manuscriptId, { logs: [...(manuscript.logs || []), formattedMessage] });
+            updateComplianceManuscript(manuscriptId, { logs: [...(manuscript.logs || []), formattedMessage] });
         }
-    }, [folders, updateManuscript]);
+    }, [folders, updateComplianceManuscript]);
 
     const onRulesDrop = useCallback(async (acceptedFiles: File[], profileId: string) => {
         setStatusBarMessage(`Processing ${acceptedFiles.length} rule file(s)...`, 'info');
@@ -113,10 +113,10 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             transientFiles.current.set(id, file);
             return { id, name: file.name, status: 'queued', logs: [], progress: 0 };
         });
-        addManuscriptsToFolder(folderId, newManuscripts);
+        addManuscriptsToComplianceFolder(folderId, newManuscripts);
         setProcessingQueue(prev => [...prev, ...newManuscripts.map(m => m.id)]);
         setStatusBarMessage(`${newManuscripts.length} manuscript(s) added to queue.`, 'info');
-    }, [setStatusBarMessage, addManuscriptsToFolder]);
+    }, [setStatusBarMessage, addManuscriptsToComplianceFolder]);
 
     useEffect(() => {
         const processNextInQueue = async () => {
@@ -127,23 +127,23 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 const m = f.manuscripts.find(ms => ms.id === manuscriptId);
                 if (m) { acc.folder = f; acc.manuscript = m; }
                 return acc;
-            }, {} as { folder?: ProjectFolder, manuscript?: ManuscriptFile });
+            }, {} as { folder?: ComplianceProjectFolder, manuscript?: ManuscriptFile });
             const { folder, manuscript } = findResult;
             const fileObject = transientFiles.current.get(manuscriptId);
             
             if (!manuscript || !folder || !folder.profileId || !fileObject) {
                 addComplianceLog(manuscriptId, "ERROR: Config or file content not found.");
-                updateManuscript(manuscriptId, { status: 'error' });
+                updateComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             const profile = profiles.find(p => p.id === folder.profileId);
             if (!profile || profile.ruleFileIds.length === 0) {
                 addComplianceLog(manuscriptId, `ERROR: Profile '${profile?.name || 'Unknown'}' empty.`);
-                updateManuscript(manuscriptId, { status: 'error' });
+                updateComplianceManuscript(manuscriptId, { status: 'error' });
                 setIsProcessing(false); setProcessingQueue(q => q.slice(1)); return;
             }
             
-            updateManuscript(manuscriptId, { status: 'processing', progress: 0 });
+            updateComplianceManuscript(manuscriptId, { status: 'processing', progress: 0 });
             addComplianceLog(manuscriptId, "Processing started.");
             try {
                 addComplianceLog(manuscriptId, "Extracting text from manuscript...");
@@ -159,7 +159,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
                 let allFindings: ComplianceFinding[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
-                    updateManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
+                    updateComplianceManuscript(manuscriptId, { progress: Math.round(((index + 1) / textChunks.length) * 100) });
                     addComplianceLog(manuscriptId, `Processing chunk ${index + 1}/${textChunks.length}...`);
                     try {
                         const reportForChunk = await performComplianceCheck(chunk, rulesText, selectedModel);
@@ -179,17 +179,17 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     outputId: manuscriptId,
                     outputName: fileObject.name,
                 });
-                updateManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
+                updateComplianceManuscript(manuscriptId, { status: 'completed', complianceReport: allFindings, progress: 100 });
             } catch (error) {
                 addComplianceLog(manuscriptId, `FATAL ERROR: ${error instanceof Error ? error.message : "Unknown"}`);
-                updateManuscript(manuscriptId, { status: 'error' });
+                updateComplianceManuscript(manuscriptId, { status: 'error' });
             } finally {
                 setIsProcessing(false);
                 setProcessingQueue(q => q.slice(1));
             }
         };
         processNextInQueue();
-    }, [processingQueue, isProcessing, folders, profiles, ruleFiles, addUsageLog, currentUser, addComplianceLog, updateManuscript, selectedModel]);
+    }, [processingQueue, isProcessing, folders, profiles, ruleFiles, addUsageLog, currentUser, addComplianceLog, updateComplianceManuscript, selectedModel]);
 
     const handleDownloadLog = (manuscript: ManuscriptFile) => {
         const fileName = `${manuscript.name}.log.txt`;
@@ -258,7 +258,7 @@ const ComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                 <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check manuscripts for compliance.</p>
                             </div>
                          ) : (
-                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteComplianceFolder} onMapProfile={(profId) => updateComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
                          )}
                     </section>
                 )}
@@ -360,7 +360,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
 );
 
 
-const FolderCard: React.FC<{ folder: ProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
+const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">

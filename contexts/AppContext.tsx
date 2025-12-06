@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, ReactNode, useCallback, useMemo, useEffect } from 'react';
-import { User, Role, UsageLog, UserDataStore, PdfFile, ManuscriptFile, AppState, StatusBarMessage, ExtractedAsset } from '../types';
+import { User, Role, UsageLog, UserDataStore, PdfFile, ManuscriptFile, AppState, StatusBarMessage, ExtractedAsset, AnalysisProjectFolder, BookFile } from '../types';
 import { USERS, USAGE_LOGS } from '../constants';
 import { loadInitialState, STORAGE_KEY } from '../services/migrationService';
 
@@ -28,6 +28,11 @@ interface AppContextType {
   addMetadataAsset: (pdfId: string, newAsset: ExtractedAsset) => void;
   updateMetadataAsset: (pdfId: string, assetId: string, updates: Partial<any>) => void;
   deleteMetadataAsset: (pdfId: string, assetId: string) => void;
+  createBookFolder: (name: string) => void;
+  deleteBookFolder: (folderId: string) => void;
+  addBookFilesToFolder: (folderId: string, files: BookFile[]) => void;
+  updateBookFile: (bookId: string, updates: Partial<BookFile>) => void;
+  deleteBookFile: (folderId: string, bookId: string) => void;
   createComplianceProfile: (name: string) => void;
   deleteComplianceProfile: (profileId: string) => void;
   addRuleFilesToProfile: (profileId: string, newRuleFiles: Record<string, any>) => void;
@@ -35,16 +40,23 @@ interface AppContextType {
   createComplianceFolder: (name: string, profileId: string | null) => void;
   deleteComplianceFolder: (folderId: string) => void;
   updateComplianceFolderProfile: (folderId: string, profileId: string | null) => void;
-  addManuscriptsToFolder: (folderId: string, files: ManuscriptFile[]) => void;
-  updateManuscript: (manuscriptId: string, updates: Partial<ManuscriptFile>) => void;
-  deleteManuscript: (folderId: string, manuscriptId: string) => void;
+  addManuscriptsToComplianceFolder: (folderId: string, files: ManuscriptFile[]) => void;
+  updateComplianceManuscript: (manuscriptId: string, updates: Partial<ManuscriptFile>) => void;
+  deleteComplianceManuscript: (folderId: string, manuscriptId: string) => void;
+  createAnalysisFolder: (name: string) => void;
+  deleteAnalysisFolder: (folderId: string) => void;
+  addManuscriptsToAnalysisFolder: (folderId: string, files: ManuscriptFile[]) => void;
+  updateAnalysisManuscript: (manuscriptId: string, updates: Partial<ManuscriptFile>) => void;
+  deleteAnalysisManuscript: (folderId: string, manuscriptId: string) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const defaultUserData: UserDataStore = {
     metadataFolders: [],
+    bookFolders: [],
     complianceFolders: [],
+    analysisFolders: [],
     complianceProfiles: [],
     ruleFiles: {},
 };
@@ -238,16 +250,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateMetadataAsset = useCallback((pdfId: string, assetId: string, updates: Partial<any>) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, assets: p.assets?.map(a => a.id === assetId ? { ...a, ...updates } : a) } : p) })) })), [updateCurrentUserStore]);
   const deleteMetadataAsset = useCallback((pdfId: string, assetId: string) => updateCurrentUserStore(store => ({ ...store, metadataFolders: store.metadataFolders.map(f => ({ ...f, pdfFiles: f.pdfFiles.map(p => p.id === pdfId ? { ...p, assets: p.assets?.filter(a => a.id !== assetId) } : p) })) })), [updateCurrentUserStore]);
 
+  // Book Metadata Actions
+  const createBookFolder = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, bookFolders: [...store.bookFolders, { id: Date.now().toString(), name, bookFiles: [] }] })), [updateCurrentUserStore]);
+  const deleteBookFolder = useCallback((folderId: string) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.filter(f => f.id !== folderId) })), [updateCurrentUserStore]);
+  const addBookFilesToFolder = useCallback((folderId: string, files: BookFile[]) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.map(f => f.id === folderId ? { ...f, bookFiles: [...f.bookFiles, ...files] } : f) })), [updateCurrentUserStore]);
+  const updateBookFile = useCallback((bookId: string, updates: Partial<BookFile>) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.map(f => ({ ...f, bookFiles: f.bookFiles.map(p => p.id === bookId ? { ...p, ...updates } : p) })) })), [updateCurrentUserStore]);
+  const deleteBookFile = useCallback((folderId: string, bookId: string) => updateCurrentUserStore(store => ({ ...store, bookFolders: store.bookFolders.map(f => f.id === folderId ? { ...f, bookFiles: f.bookFiles.filter(p => p.id !== bookId) } : f) })), [updateCurrentUserStore]);
+
   const createComplianceProfile = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: [...store.complianceProfiles, { id: Date.now().toString(), name, ruleFileIds: [] }] })), [updateCurrentUserStore]);
   const deleteComplianceProfile = useCallback((profileId: string) => updateCurrentUserStore(store => ({ ...store, complianceProfiles: store.complianceProfiles.filter(p => p.id !== profileId) })), [updateCurrentUserStore]);
   const addRuleFilesToProfile = useCallback((profileId: string, newRuleFiles: Record<string, any>) => updateCurrentUserStore(store => ({ ...store, ruleFiles: { ...store.ruleFiles, ...newRuleFiles }, complianceProfiles: store.complianceProfiles.map(p => p.id === profileId ? { ...p, ruleFileIds: [...p.ruleFileIds, ...Object.keys(newRuleFiles)] } : p) })), [updateCurrentUserStore]);
   const deleteRuleFileFromProfile = useCallback((profileId: string, ruleFileId: string) => updateCurrentUserStore(store => ({...store, complianceProfiles: store.complianceProfiles.map(p => p.id === profileId ? { ...p, ruleFileIds: p.ruleFileIds.filter(id => id !== ruleFileId) } : p) })), [updateCurrentUserStore]);
+  
   const createComplianceFolder = useCallback((name: string, profileId: string | null) => updateCurrentUserStore(store => ({ ...store, complianceFolders: [...store.complianceFolders, { id: Date.now().toString(), name, profileId, manuscripts: [] }] })), [updateCurrentUserStore]);
   const deleteComplianceFolder = useCallback((folderId: string) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.filter(f => f.id !== folderId) })), [updateCurrentUserStore]);
   const updateComplianceFolderProfile = useCallback((folderId: string, profileId: string | null) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, profileId } : f) })), [updateCurrentUserStore]);
-  const addManuscriptsToFolder = useCallback((folderId: string, files: ManuscriptFile[]) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, manuscripts: [...f.manuscripts, ...files] } : f) })), [updateCurrentUserStore]);
-  const updateManuscript = useCallback((manuscriptId: string, updates: Partial<ManuscriptFile>) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => ({ ...f, manuscripts: f.manuscripts.map(m => m.id === manuscriptId ? { ...m, ...updates } : m) })) })), [updateCurrentUserStore]);
-  const deleteManuscript = useCallback((folderId: string, manuscriptId: string) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, manuscripts: f.manuscripts.filter(m => m.id !== manuscriptId) } : f) })), [updateCurrentUserStore]);
+  const addManuscriptsToComplianceFolder = useCallback((folderId: string, files: ManuscriptFile[]) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, manuscripts: [...f.manuscripts, ...files] } : f) })), [updateCurrentUserStore]);
+  const updateComplianceManuscript = useCallback((manuscriptId: string, updates: Partial<ManuscriptFile>) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => ({ ...f, manuscripts: f.manuscripts.map(m => m.id === manuscriptId ? { ...m, ...updates } : m) })) })), [updateCurrentUserStore]);
+  const deleteComplianceManuscript = useCallback((folderId: string, manuscriptId: string) => updateCurrentUserStore(store => ({ ...store, complianceFolders: store.complianceFolders.map(f => f.id === folderId ? { ...f, manuscripts: f.manuscripts.filter(m => m.id !== manuscriptId) } : f) })), [updateCurrentUserStore]);
+
+  const createAnalysisFolder = useCallback((name: string) => updateCurrentUserStore(store => ({ ...store, analysisFolders: [...store.analysisFolders, { id: Date.now().toString(), name, manuscripts: [] }] })), [updateCurrentUserStore]);
+  const deleteAnalysisFolder = useCallback((folderId: string) => updateCurrentUserStore(store => ({ ...store, analysisFolders: store.analysisFolders.filter(f => f.id !== folderId) })), [updateCurrentUserStore]);
+  const addManuscriptsToAnalysisFolder = useCallback((folderId: string, files: ManuscriptFile[]) => updateCurrentUserStore(store => ({ ...store, analysisFolders: store.analysisFolders.map(f => f.id === folderId ? { ...f, manuscripts: [...f.manuscripts, ...files] } : f) })), [updateCurrentUserStore]);
+  const updateAnalysisManuscript = useCallback((manuscriptId: string, updates: Partial<ManuscriptFile>) => updateCurrentUserStore(store => ({ ...store, analysisFolders: store.analysisFolders.map(f => ({ ...f, manuscripts: f.manuscripts.map(m => m.id === manuscriptId ? { ...m, ...updates } : m) })) })), [updateCurrentUserStore]);
+  const deleteAnalysisManuscript = useCallback((folderId: string, manuscriptId: string) => updateCurrentUserStore(store => ({ ...store, analysisFolders: store.analysisFolders.map(f => f.id === folderId ? { ...f, manuscripts: f.manuscripts.filter(m => m.id !== manuscriptId) } : f) })), [updateCurrentUserStore]);
+
 
   const contextValue = useMemo(() => ({
     theme: state.theme,
@@ -266,10 +293,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     currentUserData,
     createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs,
     updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset,
+    createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile,
     createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile,
     deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder,
-    updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript,
-  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToFolder, updateManuscript, deleteManuscript]);
+    updateComplianceFolderProfile, addManuscriptsToComplianceFolder: addManuscriptsToComplianceFolder, updateComplianceManuscript: updateComplianceManuscript, deleteComplianceManuscript: deleteComplianceManuscript,
+    createAnalysisFolder, deleteAnalysisFolder, addManuscriptsToAnalysisFolder, updateAnalysisManuscript, deleteAnalysisManuscript,
+  }), [state, currentUser, currentUserData, toggleTheme, addUser, deleteUser, updateUser, addUsageLog, setStatusBarMessage, login, logout, createMetadataFolder, deleteMetadataFolder, addPdfFilesToFolder, createMetadataFolderAndAddPdfs, updatePdfFile, deletePdfFile, addMetadataAsset, updateMetadataAsset, deleteMetadataAsset, createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile, createComplianceProfile, deleteComplianceProfile, addRuleFilesToProfile, deleteRuleFileFromProfile, createComplianceFolder, deleteComplianceFolder, updateComplianceFolderProfile, addManuscriptsToComplianceFolder, updateComplianceManuscript, deleteComplianceManuscript, createAnalysisFolder, deleteAnalysisFolder, addManuscriptsToAnalysisFolder, updateAnalysisManuscript, deleteAnalysisManuscript]);
 
   if (!state.isInitialized) return null;
 

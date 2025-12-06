@@ -129,10 +129,16 @@ export interface ManuscriptFile {
   progress?: number;
 }
 
-export interface ProjectFolder {
+export interface ComplianceProjectFolder {
   id: string;
   name: string;
   profileId: string | null;
+  manuscripts: ManuscriptFile[];
+}
+
+export interface AnalysisProjectFolder {
+  id: string;
+  name: string;
   manuscripts: ManuscriptFile[];
 }
 
@@ -155,10 +161,33 @@ export interface MetadataProjectFolder {
   pdfFiles: PdfFile[];
 }
 
+// Types for the new Book Metadata Extractor
+export type BookFileStatus = 'queued' | 'processing' | 'completed' | 'error';
+
+export interface BookFile {
+  id: string;
+  name: string;
+  file?: File;
+  status: BookFileStatus;
+  onixMetadata?: string;
+  marcMetadata?: string;
+  logs?: string[];
+  progress?: number;
+}
+
+export interface BookProjectFolder {
+  id: string;
+  name: string;
+  bookFiles: BookFile[];
+}
+
+
 // Central data store for each user
 export interface UserDataStore {
   metadataFolders: MetadataProjectFolder[];
-  complianceFolders: ProjectFolder[];
+  bookFolders: BookProjectFolder[];
+  complianceFolders: ComplianceProjectFolder[];
+  analysisFolders: AnalysisProjectFolder[];
   complianceProfiles: ComplianceProfile[];
   ruleFiles: Record<string, RuleFile>;
 }

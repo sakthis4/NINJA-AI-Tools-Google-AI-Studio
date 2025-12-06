@@ -117,6 +117,21 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
     }
 };
 
+const BOOK_METADATA_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        onix: {
+            type: Type.STRING,
+            description: 'A complete and well-formed ONIX 3.0 XML document containing all extracted metadata. This should include all mandatory fields for distribution platforms.'
+        },
+        marc: {
+            type: Type.STRING,
+            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Author Name.`'
+        }
+    },
+    required: ['onix', 'marc']
+};
+
 const MAX_RETRIES = 5;
 const INITIAL_DELAY_MS = 2000;
 
@@ -303,5 +318,67 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
     } catch (error) {
         console.error("Error calling AI service for manuscript analysis:", error);
         throw new Error("Failed to perform manuscript analysis with the AI service.");
+    }
+}
+
+export async function extractBookMetadata(fullText: string, modelName: string): Promise<{ onix: string; marc: string }> {
+    const prompt = `
+        You are an expert metadata librarian and publishing professional. Your task is to analyze the full text of the provided book or journal and extract comprehensive bibliographic metadata required for commercial distribution and library cataloging. Generate two distinct, standards-compliant metadata records.
+
+        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms like Ingram and Highwire. Pay close attention to:
+            - **RecordReference:** A unique identifier for this ONIX record.
+            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13") and DOI.
+            - **DescriptiveDetail:**
+                - **TitleDetail:** Full title, subtitle.
+                - **Contributor:** All authors, editors, etc., with correct roles and biographical notes if available.
+                - **Language:** Language of the text.
+                - **Extent:** Number of pages.
+                - **Subject:** Provide multiple subject headings using both BISAC (for North America) and Thema (international) schemes. Extract keywords and topics from the text to generate these.
+            - **CollateralDetail:**
+                - **TextContent:** Include a detailed summary/description (TextType code 03) and a full table of contents (TextType code 04) if present in the source text. Also include promotional text or keywords.
+            - **PublishingDetail:**
+                - **Publisher:** Full publisher name.
+                - **PublishingDate:** Date of publication.
+            - **ProductSupply:**
+                - **SupplyDetail:** Include supplier information and at least one price (e.g., US Dollar).
+
+        2.  **MARC21:** Create a human-readable text representation of a MARC21 record, ready for library systems. Each field must be on a new line, formatted precisely with the MARC tag, indicators, and subfield codes (e.g., \`100 1# $a Smith, John.\`). Include all essential fields:
+            - **Leader:** A placeholder is acceptable if you cannot generate a valid one.
+            - **008:** Fixed-Length Data Elements (Date of publication, language, etc.).
+            - **020:** ISBN ($a).
+            - **082:** Dewey Decimal Classification (if it can be inferred).
+            - **100:** Main Entry - Personal Name ($a Author Name, $d dates if available).
+            - **245:** Title Statement ($a Title : $b subtitle / $c statement of responsibility).
+            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Name, $c Date).
+            - **300:** Physical Description ($a extent : $b other physical details ; $c dimensions).
+            - **505:** Formatted Contents Note (Table of Contents).
+            - **520:** Summary Note (A full, detailed summary or abstract).
+            - **650:** Subject Added Entry - Topical Term ($a Topic -- $z Geographic subdivision). Generate multiple relevant subjects based on the content, including keywords and taxonomy.
+            - **655:** Index Term - Genre/Form ($a Genre).
+
+        Extract this information meticulously from the following document text.
+
+        DOCUMENT TEXT:
+        ${fullText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: BOOK_METADATA_SCHEMA,
+            },
+        }));
+        const jsonText = response.text.trim();
+        const parsedJson = JSON.parse(jsonText);
+        if (typeof parsedJson.onix !== 'string' || typeof parsedJson.marc !== 'string') {
+            throw new Error("API response did not contain the expected 'onix' and 'marc' string properties.");
+        }
+        return parsedJson;
+    } catch (error) {
+        console.error("Error calling AI service for book metadata extraction:", error);
+        throw new Error("Failed to extract book metadata with the AI service.");
     }
 }
