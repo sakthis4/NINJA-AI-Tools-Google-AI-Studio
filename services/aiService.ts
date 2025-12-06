@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -148,6 +148,77 @@ const READABILITY_ANALYSIS_SCHEMA = {
         },
         required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
     }
+};
+
+const MANUSCRIPT_SCORING_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        complianceScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Score (0-100) for adherence to typical journal guidelines, based on the provided text." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+            required: ['score', 'reasoning']
+        },
+        scientificQualityScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Score (0-100) for the perceived scientific quality, methodology, and clarity of results." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        },
+        writingQualityScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Score (0-100) for grammar, style, clarity, and overall readability." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        },
+        citationMaturityScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Score (0-100) based on the diversity, recency, and apparent quality of cited sources in the bibliography." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        },
+        noveltyScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Score (0-100) based on the semantic analysis of the abstract and introduction to gauge the novelty of the research contribution." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        },
+        dataIntegrityRiskScore: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Risk score (0-100, where higher is RISKIER) for potential data integrity issues like inconsistent numbers or lack of statistical detail." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        },
+        editorAcceptanceLikelihood: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER, description: "Approximated likelihood score (0-100) of an editor passing this manuscript to peer review, based on all factors." },
+                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
+            },
+             required: ['score', 'reasoning']
+        }
+    },
+    required: [
+        'complianceScore', 
+        'scientificQualityScore', 
+        'writingQualityScore', 
+        'citationMaturityScore', 
+        'noveltyScore', 
+        'dataIntegrityRiskScore', 
+        'editorAcceptanceLikelihood'
+    ]
 };
 
 const BOOK_METADATA_SCHEMA = {
@@ -562,6 +633,44 @@ export async function analyzeReadability(manuscriptText: string, modelName: stri
     } catch (error) {
         console.error("Error calling AI service for readability analysis:", error);
         throw new Error("Failed to perform readability analysis with the AI service.");
+    }
+}
+
+export async function scoreManuscript(manuscriptText: string, modelName: string): Promise<ManuscriptScores> {
+    const prompt = `
+        You are an experienced peer reviewer and journal editor for a top-tier scientific journal. Your task is to provide a comprehensive quantitative assessment of the provided manuscript text. Analyze the entire document and return a JSON object with scores for each of the following categories, from 0 to 100. For each score, provide a brief, one-sentence justification.
+
+        - **Compliance Score:** How well does the manuscript structure (e.g., Abstract, Introduction, Methods, etc.) adhere to standard academic formats?
+        - **Scientific Quality Score:** Based on the abstract, methods, and results, how sound and rigorous does the science appear to be?
+        - **Writing Quality Score:** Assess the overall language, grammar, clarity, and style.
+        - **Citation Maturity Score:** Evaluate the bibliography. Are the sources recent, diverse, and from reputable journals?
+        - **Novelty Score:** From the abstract and introduction, how significant and novel does the research contribution seem?
+        - **Data Integrity Risk Score:** (Higher score = HIGHER RISK) Are there any red flags, such as inconsistencies in reported data, lack of statistical detail, or potential signs of manipulation? A low risk is a low score.
+        - **Editor Acceptance Likelihood:** Based on all the above factors, what is the estimated likelihood that a journal editor would send this manuscript out for peer review?
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: MANUSCRIPT_SCORING_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            throw new Error("API returned empty response for manuscript scoring.");
+        }
+        const parsedJson = JSON.parse(jsonText);
+        return parsedJson;
+    } catch (error) {
+        console.error("Error calling AI service for manuscript scoring:", error);
+        throw new Error("Failed to perform manuscript scoring with the AI service.");
     }
 }
 

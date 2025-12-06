@@ -133,6 +133,16 @@ export interface JournalRecommendation {
     reasoning: string;
 }
 
+export interface ManuscriptScores {
+    complianceScore: { score: number; reasoning: string };
+    scientificQualityScore: { score: number; reasoning: string };
+    writingQualityScore: { score: number; reasoning: string };
+    citationMaturityScore: { score: number; reasoning: string };
+    noveltyScore: { score: number; reasoning: string };
+    dataIntegrityRiskScore: { score: number; reasoning: string }; // Higher is riskier
+    editorAcceptanceLikelihood: { score: number; reasoning: string };
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -156,6 +166,7 @@ export interface ManuscriptFile {
   structuralReport?: BookStructuralIssue[];
   readabilityReport?: ReadabilityIssue[];
   journalRecommendations?: JournalRecommendation[];
+  scores?: ManuscriptScores;
   logs?: string[];
   progress?: number;
 }

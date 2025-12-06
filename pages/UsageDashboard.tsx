@@ -4,6 +4,18 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { UsageLog } from '../types';
 import { DownloadIcon } from '../components/icons/Icons';
 
+// Helper to escape CSV fields
+const escapeCsvField = (field: any): string => {
+    if (field === null || field === undefined) {
+        return '""';
+    }
+    const stringField = String(field);
+    if (/[",\n]/.test(stringField)) {
+        return `"${stringField.replace(/"/g, '""')}"`;
+    }
+    return `"${stringField}"`;
+};
+
 export default function UsageDashboard() {
   const { currentUser, usageLogs, currentUserData, setStatusBarMessage } = useAppContext();
 
@@ -45,56 +57,73 @@ export default function UsageDashboard() {
             const manuscript = folders.flatMap(f => f.manuscripts).find(m => m.id === log.outputId);
             
             if (manuscript) {
-                const fileName = `${manuscript.name}_report.log.txt`;
-                let content = `COMPREHENSIVE REPORT\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n`;
+                const fileName = `${manuscript.name}_report.csv`;
+                let csvContent = `File Name,${escapeCsvField(manuscript.name)}\nStatus,${escapeCsvField(manuscript.status)}\n\n`;
 
                 if (manuscript.complianceReport && manuscript.complianceReport.length > 0) {
-                    content += `\n---\n\nCOMPLIANCE REPORT:\n\n`;
-                    manuscript.complianceReport.forEach(f => { content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                    csvContent += '## COMPLIANCE REPORT ##\n';
+                    csvContent += 'Status,Category,Summary,Manuscript Quote,Manuscript Page,Rule Content,Rule Page,Recommendation\n';
+                    manuscript.complianceReport.forEach(f => {
+                        csvContent += [f.status, f.checkCategory, f.summary, f.manuscriptQuote, f.manuscriptPage, f.ruleContent, f.rulePage, f.recommendation].map(escapeCsvField).join(',') + '\n';
+                    });
+                    csvContent += '\n';
                 }
 
                 if (manuscript.analysisReport && manuscript.analysisReport.length > 0) {
-                    content += `\n---\n\nMANUSCRIPT ANALYSIS REPORT:\n\n`;
-                    manuscript.analysisReport.forEach(f => { content += `[${f.priority.toUpperCase()}] ${f.issueCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.pageNumber}): "${f.quote}"\n- Recommendation: ${f.recommendation}\n\n`; });
+                    csvContent += '## MANUSCRIPT ANALYSIS REPORT ##\n';
+                    csvContent += 'Priority,Category,Summary,Quote,Page Number,Recommendation\n';
+                    manuscript.analysisReport.forEach(f => {
+                        csvContent += [f.priority, f.issueCategory, f.summary, f.quote, f.pageNumber, f.recommendation].map(escapeCsvField).join(',') + '\n';
+                    });
+                    csvContent += '\n';
                 }
                 
                 if (log.toolName === 'Journal Compliance Checker' && manuscript.journalRecommendations && manuscript.journalRecommendations.length > 0) {
-                    content += `\n---\n\nJOURNAL RECOMMENDATIONS:\n\n`;
+                    csvContent += '## JOURNAL RECOMMENDATIONS ##\n';
+                    csvContent += 'Journal Name,Publisher,ISSN,Field,Reasoning\n';
                     manuscript.journalRecommendations.forEach(rec => {
-                        content += `Journal: ${rec.journalName}\n`;
-                        content += `Publisher: ${rec.publisher}\n`;
-                        if (rec.issn) content += `ISSN: ${rec.issn}\n`;
-                        content += `Field: ${rec.field}\n`;
-                        content += `Reasoning: ${rec.reasoning}\n\n`;
+                       csvContent += [rec.journalName, rec.publisher, rec.issn, rec.field, rec.reasoning].map(escapeCsvField).join(',') + '\n';
                     });
+                     csvContent += '\n';
+                }
+
+                if (log.toolName === 'Journal Compliance Checker' && manuscript.scores) {
+                    csvContent += '## SCORING REPORT ##\n';
+                    csvContent += 'Metric,Score,Reasoning\n';
+                    for (const [key, value] of Object.entries(manuscript.scores)) {
+                        const scoreName = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+                        csvContent += [scoreName, value.score, value.reasoning].map(escapeCsvField).join(',') + '\n';
+                    }
+                    csvContent += '\n';
                 }
                 
                 if (log.toolName === 'Book Compliance Checker' && manuscript.structuralReport && manuscript.structuralReport.length > 0) {
-                    content += `\n---\n\nSTRUCTURAL ANALYSIS REPORT:\n\n`;
+                    csvContent += '## BOOK STRUCTURAL ANALYSIS REPORT ##\n';
+                    csvContent += 'Priority,Category,Location,Summary,Details,Recommendation\n';
                     manuscript.structuralReport.forEach(f => {
-                        content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n- Recommendation: ${f.recommendation}\n\n`;
+                        csvContent += [f.priority, f.issueCategory, f.location, f.summary, f.details, f.recommendation].map(escapeCsvField).join(',') + '\n';
                     });
+                    csvContent += '\n';
                 }
 
                 if (log.toolName === 'Book Compliance Checker' && manuscript.readabilityReport && manuscript.readabilityReport.length > 0) {
-                    content += `\n---\n\nREADABILITY ANALYSIS REPORT:\n\n`;
+                    csvContent += '## READABILITY ANALYSIS REPORT ##\n';
+                    csvContent += 'Priority,Category,Location,Summary,Details,Quote,Recommendation\n';
                     manuscript.readabilityReport.forEach(f => {
-                        content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n`;
-                        if (f.quote) content += `- Quote: "${f.quote}"\n`;
-                        content += `- Recommendation: ${f.recommendation}\n\n`;
+                        csvContent += [f.priority, f.issueCategory, f.location, f.summary, f.details, f.quote, f.recommendation].map(escapeCsvField).join(',') + '\n';
                     });
+                    csvContent += '\n';
                 }
 
-                downloadFile(fileName, content, 'text/plain');
-            } else { throw new Error('Could not find the original manuscript data for compliance report.'); }
+                downloadFile(fileName, csvContent, 'text/csv;charset=utf-8');
+            } else { throw new Error('Could not find the original manuscript data for the report.'); }
         } else if (log.toolName.startsWith('PDF Asset Analyzer') && log.outputId) {
             const pdfFile = currentUserData.metadataFolders.flatMap(f => f.pdfFiles).find(p => p.id === log.outputId);
             if (pdfFile) {
                 const fileName = `${pdfFile.name}_metadata.csv`;
-                let csvContent = "Filename,Asset ID,Asset Type,Page/Location,Alt Text,Keywords,Taxonomy\n";
+                let csvContent = "Filename,Asset ID,Asset Type,Page Number,Alt Text,Keywords,Taxonomy\n";
                 (pdfFile.assets || []).forEach(asset => {
-                    const row = [pdfFile.name, asset.assetId, asset.assetType, asset.pageNumber, `"${(asset.altText || '').replace(/"/g, '""')}"`, `"${(asset.keywords || []).join(', ').replace(/"/g, '""')}"`, `"${(asset.taxonomy || '').replace(/"/g, '""')}"`].join(',');
-                    csvContent += row + "\r\n";
+                    csvContent += [pdfFile.name, asset.assetId, asset.assetType, asset.pageNumber, asset.altText, (asset.keywords || []).join(', '), asset.taxonomy].map(escapeCsvField).join(',') + '\n';
                 });
                 downloadFile(fileName, csvContent, 'text/csv;charset=utf-8');
             } else { throw new Error('Could not find the original PDF data.'); }
@@ -104,8 +133,7 @@ export default function UsageDashboard() {
             (log.reportData as any[]).forEach(assetResult => {
                 const { fileName: imgFileName, metadata } = assetResult;
                 if (!metadata) return;
-                const row = [imgFileName, metadata.assetId, metadata.assetType, `"${(metadata.altText || '').replace(/"/g, '""')}"`, `"${(metadata.keywords || []).join(', ').replace(/"/g, '""')}"`, `"${(metadata.taxonomy || '').replace(/"/g, '""')}"`].join(',');
-                csvContent += row + "\r\n";
+                csvContent += [imgFileName, metadata.assetId, metadata.assetType, metadata.altText, (metadata.keywords || []).join(', '), metadata.taxonomy].map(escapeCsvField).join(',') + '\n';
             });
             downloadFile(fileName, csvContent, 'text/csv;charset=utf-8');
         } else {
