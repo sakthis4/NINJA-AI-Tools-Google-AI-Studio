@@ -32,14 +32,35 @@ async function extractTextFromFile(file: File): Promise<string> {
     }
 }
 
-const EditableCodeBlock: React.FC<{ code: string; language: string; onChange: (newCode: string) => void; }> = ({ code, language, onChange }) => {
+const EditableCodeBlock: React.FC<{
+    code: string;
+    language: string;
+    onChange: (newCode: string) => void;
+    errorLine?: number | null;
+}> = ({ code, language, onChange, errorLine }) => {
     const [copied, setCopied] = useState(false);
+    const lineNumbersRef = useRef<HTMLDivElement>(null);
+    const textAreaRef = useRef<HTMLTextAreaElement>(null);
+
+    const lines = code.split('\n');
 
     const handleCopy = () => {
         navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
+
+    const handleScroll = () => {
+        if (lineNumbersRef.current && textAreaRef.current) {
+            lineNumbersRef.current.scrollTop = textAreaRef.current.scrollTop;
+        }
+    };
+    
+    useEffect(() => {
+        if (textAreaRef.current && lineNumbersRef.current) {
+            lineNumbersRef.current.scrollTop = textAreaRef.current.scrollTop;
+        }
+    }, [code]);
 
     return (
         <div className="bg-slate-900 rounded-lg overflow-hidden my-4 relative border border-slate-700 focus-within:ring-2 focus-within:ring-green-500">
@@ -49,16 +70,32 @@ const EditableCodeBlock: React.FC<{ code: string; language: string; onChange: (n
                     {copied ? 'Copied!' : 'Copy'}
                 </button>
             </div>
-            <textarea
-                value={code}
-                onChange={(e) => onChange(e.target.value)}
-                className="w-full p-4 text-sm text-white bg-slate-900 font-mono border-0 focus:ring-0 resize-y"
-                style={{ height: '24rem' }}
-                spellCheck="false"
-            />
+             <div className="flex font-mono text-sm" style={{ height: '24rem' }}>
+                <div
+                    ref={lineNumbersRef}
+                    className="p-4 text-right text-slate-500 bg-slate-800 select-none overflow-y-hidden"
+                    style={{ lineHeight: '1.5rem' }}
+                >
+                    {lines.map((_, i) => (
+                        <div key={i} className={i + 1 === errorLine ? 'text-red-400 font-bold bg-red-900/30 -mx-4 px-4' : ''}>
+                            {i + 1}
+                        </div>
+                    ))}
+                </div>
+                <textarea
+                    ref={textAreaRef}
+                    value={code}
+                    onChange={(e) => onChange(e.target.value)}
+                    onScroll={handleScroll}
+                    className="w-full p-4 text-white bg-slate-900 border-0 focus:ring-0 resize-none flex-1"
+                    style={{ lineHeight: '1.5rem' }}
+                    spellCheck="false"
+                />
+            </div>
         </div>
     );
 };
+
 
 const BookMetadataExtractor: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const { currentUser, addUsageLog, setStatusBarMessage, currentUserData, createBookFolder, deleteBookFolder, addBookFilesToFolder, updateBookFile, deleteBookFile } = useAppContext();
@@ -241,18 +278,26 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
     const [editableOnix, setEditableOnix] = useState(bookFile.onixMetadata || 'No ONIX metadata generated.');
     const [editableMarc, setEditableMarc] = useState(bookFile.marcMetadata || 'No MARC metadata generated.');
     const [hasChanges, setHasChanges] = useState(false);
-    const [onixValidation, setOnixValidation] = useState<{ isValid: boolean; error: string | null }>({ isValid: true, error: null });
-    const [marcValidation, setMarcValidation] = useState<{ isValid: boolean; error: string | null }>({ isValid: true, error: null });
+    const [onixValidation, setOnixValidation] = useState<{ isValid: boolean; error: string | null; errorLine: number | null }>({ isValid: true, error: null, errorLine: null });
+    const [marcValidation, setMarcValidation] = useState<{ isValid: boolean; error: string | null; errorLine: number | null }>({ isValid: true, error: null, errorLine: null });
 
     const validateOnix = (xmlString: string) => {
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlString, "application/xml");
         const parserError = doc.getElementsByTagName("parsererror");
+
         if (parserError.length > 0) {
-            return { isValid: false, error: "Invalid XML structure. Check for unclosed tags or syntax errors." };
+            const errorText = parserError[0].textContent || "Unknown XML error";
+            const lineMatch = errorText.match(/line number (\d+)/);
+            const errorLine = lineMatch ? parseInt(lineMatch[1], 10) : null;
+            // FIX: Replaced .split() with a more robust method to get the first line of the error, avoiding a potential TS language server issue.
+            const firstNewlineIndex = errorText.indexOf('\n');
+            const cleanError = firstNewlineIndex === -1 ? errorText : errorText.substring(0, firstNewlineIndex);
+            return { isValid: false, error: cleanError, errorLine };
         }
-        return { isValid: true, error: null };
+        return { isValid: true, error: null, errorLine: null };
     };
+
 
     const validateMarc = (marcString: string) => {
         const lines = marcString.split('\n');
@@ -260,10 +305,14 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (line && !marcLineRegex.test(line)) {
-                return { isValid: false, error: `MARC format error on line ${i + 1}. Each line should start with a 3-digit tag.` };
+                return { 
+                    isValid: false, 
+                    error: `MARC format error on line ${i + 1}. Each line should start with a 3-digit tag.`,
+                    errorLine: i + 1 
+                };
             }
         }
-        return { isValid: true, error: null };
+        return { isValid: true, error: null, errorLine: null };
     };
 
     useEffect(() => {
@@ -363,7 +412,7 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
                             </div>
                             <button onClick={() => handleDownload('onix')} className="flex items-center px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"><DownloadIcon className="h-4 w-4 mr-2"/>Download .xml</button>
                         </div>
-                        <EditableCodeBlock code={editableOnix} onChange={handleOnixChange} language="xml" />
+                        <EditableCodeBlock code={editableOnix} onChange={handleOnixChange} language="xml" errorLine={onixValidation.errorLine} />
                     </div>
                 )}
                 {activeTab === 'marc' && (
@@ -380,7 +429,7 @@ const EditorView: React.FC<{ bookFile: BookFile; onBack: () => void }> = ({ book
                             </div>
                             <button onClick={() => handleDownload('marc')} className="flex items-center px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"><DownloadIcon className="h-4 w-4 mr-2"/>Download .mrc</button>
                         </div>
-                        <EditableCodeBlock code={editableMarc} onChange={handleMarcChange} language="text" />
+                        <EditableCodeBlock code={editableMarc} onChange={handleMarcChange} language="text" errorLine={marcValidation.errorLine} />
                     </div>
                 )}
             </div>

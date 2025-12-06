@@ -178,7 +178,12 @@ export async function extractAssetsFromPage(pageImageBase64: string, modelName: 
             },
         }));
         
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for page assets, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for page assets, returning empty array.", parsedJson);
@@ -206,7 +211,11 @@ export async function generateMetadataForCroppedImage(imageDataUrl: string, mode
     },
   }));
 
-  const jsonText = response.text.trim();
+  // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+  const jsonText = response.text?.trim();
+  if (!jsonText) {
+    throw new Error("API returned empty response for single asset metadata.");
+  }
   const parsedJson = JSON.parse(jsonText);
     if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
         throw new Error("API returned invalid format for single asset metadata.");
@@ -228,7 +237,11 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
             },
         }));
         
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            throw new Error("API returned empty response for image metadata.");
+        }
         const parsedJson = JSON.parse(jsonText);
         if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
             throw new Error("API returned invalid format for image metadata.");
@@ -267,7 +280,12 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
                 responseSchema: COMPLIANCE_SCHEMA,
             },
         }));
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for compliance check, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for compliance check, returning empty array.", parsedJson);
@@ -308,7 +326,12 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
                 responseSchema: MANUSCRIPT_ANALYSIS_SCHEMA,
             },
         }));
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for manuscript analysis, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for manuscript analysis, returning empty array.", parsedJson);
@@ -325,14 +348,14 @@ export async function extractBookMetadata(fullText: string, modelName: string): 
     const prompt = `
         You are an expert metadata librarian and publishing professional. Your task is to analyze the full text of the provided book or journal and extract comprehensive bibliographic metadata required for commercial distribution and library cataloging. Generate two distinct, standards-compliant metadata records.
 
-        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms like Ingram and Highwire. Pay close attention to:
+        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms. Pay close attention to:
             - **RecordReference:** A unique identifier for this ONIX record.
-            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13") and DOI.
+            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13"), ISSN, and DOI.
             - **DescriptiveDetail:**
-                - **TitleDetail:** Full title, subtitle.
+                - **TitleDetail:** Full title, subtitle. For journals, include Volume and Issue numbers (e.g., using <PartNumber> for issue).
                 - **Contributor:** All authors, editors, etc., with correct roles and biographical notes if available.
                 - **Language:** Language of the text.
-                - **Extent:** Number of pages.
+                - **Extent:** Total number of pages (use ExtentType '00' and ExtentUnit '03').
                 - **Subject:** Provide multiple subject headings using both BISAC (for North America) and Thema (international) schemes. Extract keywords and topics from the text to generate these.
             - **CollateralDetail:**
                 - **TextContent:** Include a detailed summary/description (TextType code 03) and a full table of contents (TextType code 04) if present in the source text. Also include promotional text or keywords.
@@ -346,15 +369,17 @@ export async function extractBookMetadata(fullText: string, modelName: string): 
             - **Leader:** A placeholder is acceptable if you cannot generate a valid one.
             - **008:** Fixed-Length Data Elements (Date of publication, language, etc.).
             - **020:** ISBN ($a).
+            - **022:** ISSN ($a).
             - **082:** Dewey Decimal Classification (if it can be inferred).
             - **100:** Main Entry - Personal Name ($a Author Name, $d dates if available).
             - **245:** Title Statement ($a Title : $b subtitle / $c statement of responsibility).
-            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Name, $c Date).
-            - **300:** Physical Description ($a extent : $b other physical details ; $c dimensions).
+            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Publisher Name, $c Date).
+            - **300:** Physical Description ($a number of pages : $b other physical details ; $c dimensions).
             - **505:** Formatted Contents Note (Table of Contents).
             - **520:** Summary Note (A full, detailed summary or abstract).
             - **650:** Subject Added Entry - Topical Term ($a Topic -- $z Geographic subdivision). Generate multiple relevant subjects based on the content, including keywords and taxonomy.
             - **655:** Index Term - Genre/Form ($a Genre).
+            - **773:** Host Item Entry (For journal articles, to contain journal title, Volume, Issue, and date information. e.g., $t Journal Title $g Vol. 12, Iss. 3 (2024)).
 
         Extract this information meticulously from the following document text.
 
@@ -371,7 +396,11 @@ export async function extractBookMetadata(fullText: string, modelName: string): 
                 responseSchema: BOOK_METADATA_SCHEMA,
             },
         }));
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            throw new Error("API returned empty response for book metadata extraction.");
+        }
         const parsedJson = JSON.parse(jsonText);
         if (typeof parsedJson.onix !== 'string' || typeof parsedJson.marc !== 'string') {
             throw new Error("API response did not contain the expected 'onix' and 'marc' string properties.");

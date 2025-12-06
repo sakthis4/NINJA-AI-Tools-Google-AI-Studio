@@ -163,7 +163,12 @@ export async function extractAssetsFromPage(pageImageBase64: string, modelName: 
             },
         }));
         
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for page assets, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for page assets, returning empty array.", parsedJson);
@@ -191,7 +196,11 @@ export async function generateMetadataForCroppedImage(imageDataUrl: string, mode
     },
   }));
 
-  const jsonText = response.text.trim();
+  // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+  const jsonText = response.text?.trim();
+  if (!jsonText) {
+    throw new Error("API returned empty response for single asset metadata.");
+  }
   const parsedJson = JSON.parse(jsonText);
     if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
         throw new Error("API returned invalid format for single asset metadata.");
@@ -213,7 +222,11 @@ export async function generateMetadataForImage(imageBase64: string, mimeType: st
             },
         }));
         
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            throw new Error("API returned empty response for image metadata.");
+        }
         const parsedJson = JSON.parse(jsonText);
         if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
             throw new Error("API returned invalid format for image metadata.");
@@ -252,7 +265,12 @@ export async function performComplianceCheck(manuscriptText: string, rulesText: 
                 responseSchema: COMPLIANCE_SCHEMA,
             },
         }));
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for compliance check, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for compliance check, returning empty array.", parsedJson);
@@ -293,7 +311,12 @@ export async function analyzeManuscript(manuscriptText: string, modelName: strin
                 responseSchema: MANUSCRIPT_ANALYSIS_SCHEMA,
             },
         }));
-        const jsonText = response.text.trim();
+        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
+        const jsonText = response.text?.trim();
+        if (!jsonText) {
+            console.warn("API returned empty response for manuscript analysis, returning empty array.");
+            return [];
+        }
         const parsedJson = JSON.parse(jsonText);
         if (!Array.isArray(parsedJson)) {
             console.warn("API returned non-array for manuscript analysis, returning empty array.", parsedJson);
