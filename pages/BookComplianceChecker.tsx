@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAppContext } from '../hooks/useAppContext';
@@ -14,6 +15,7 @@ import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
     ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority, ReadabilityIssue, BookMetadataIssue, VisualAssetIssue, BookEditorialIssue
 } from '../types';
+import ScoringDashboard from '../components/ScoringDashboard';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
@@ -28,6 +30,11 @@ async function extractTextFromFile(file: File): Promise<string> {
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
             fullText += `[Page ${i}]\n${pageText}\n\n`;
+            
+            // Yield to main thread every 20 pages to prevent UI hanging
+            if (i % 20 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
         return fullText;
     } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
@@ -42,6 +49,10 @@ async function extractTextFromFile(file: File): Promise<string> {
             if (chunk.trim()) {
                 fullText += `[Page ${pageCounter}]\n${chunk}\n\n`;
                 pageCounter++;
+            }
+            // Yield every 50 chunks
+            if (pageCounter % 50 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
         return fullText;
@@ -86,6 +97,81 @@ const renderPriorityVisuals = (priority: ManuscriptIssuePriority | string) => {
 const ManuscriptStatusIndicator: React.FC<{ status: ManuscriptStatus }> = ({ status }) => {
     const styles = { queued: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200', processing: 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-200', completed: 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200', error: 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200' };
     return <span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[status]}`}>{status}</span>;
+};
+
+const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
+    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
+    return (
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden transition-all duration-300">
+            <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{profile.name}</p><p className="text-sm text-slate-500">{profile.ruleFileIds.length} rule file(s)</p></div>
+                <div className="flex items-center space-x-2">
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(profile.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
+                    <ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
+                </div>
+            </button>
+            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                {profile.ruleFileIds.map(id => (<div key={id} className="flex justify-between items-center bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md"><p className="text-sm truncate">{ruleFiles[id]?.name}</p><button onClick={() => onRuleDelete(id)} className="text-slate-400 hover:text-red-500 ml-2"><XIcon className="h-4 w-4"/></button></div>))}
+                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                    <input {...getInputProps()} />
+                    <UploadIcon className="h-8 w-8 mx-auto" />
+                    <p className="mt-2 text-sm">Add Rule Document(s) (.pdf, .docx)</p>
+                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
+                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                        <span>Your files are processed securely.</span>
+                    </div>
+                </div>
+            </div>}
+        </div>
+    );
+};
+
+const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadReport }) => (
+    <div className="bg-slate-100 dark:bg-slate-700/50 p-3 rounded-md">
+        <div className="flex justify-between items-center gap-4">
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{manuscript.name}</p>
+                 <div className="mt-1">
+                    <ManuscriptStatusIndicator status={manuscript.status} />
+                </div>
+            </div>
+            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                {manuscript.status === 'completed' && (
+                    <>
+                        <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/50 rounded-md hover:bg-sky-200 dark:hover:bg-sky-900">View Report</button>
+                        <button onClick={() => onDownloadReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
+                    </>
+                )}
+                <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full"><ClipboardListIcon className="h-4 w-4"/></button>
+                <button onClick={() => onManuscriptDelete(manuscript.id)} title="Delete" className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"><TrashIcon className="h-4 w-4"/></button>
+            </div>
+        </div>
+        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
+    </div>
+);
+
+const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadReport }) => {
+    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
+    return (
+         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
+            <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-slate-100 dark:bg-slate-700 border rounded-md p-1 focus:ring-purple-500 focus:border-purple-500"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
+                <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
+            </button>
+            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadReport={onDownloadReport} />)}</div>
+                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors">
+                    <input {...getInputProps()} />
+                    <UploadIcon className="h-8 w-8 mx-auto" />
+                    <p className="mt-2 text-sm">Upload Manuscripts (.pdf, .docx)</p>
+                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
+                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
+                        <span>Your files are processed securely.</span>
+                    </div>
+                </div>
+            </div>}
+        </div>
+    );
 };
 
 const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => {
@@ -609,83 +695,6 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     {(selectedManuscript?.logs || []).map((log, index) => <p key={index}>{log}</p>)}
                 </div>
             </Modal>
-        </div>
-    );
-};
-
-// ... (ProfileCard, ManuscriptRow, FolderCard, export default BookComplianceChecker)
-const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
-    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
-    return (
-        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden transition-all duration-300">
-            <button onClick={() => onExpandToggle(profile.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{profile.name}</p><p className="text-sm text-slate-500">{profile.ruleFileIds.length} rule file(s)</p></div>
-                <div className="flex items-center space-x-2">
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(profile.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button>
-                    <ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
-                </div>
-            </button>
-            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-                {profile.ruleFileIds.map(id => (<div key={id} className="flex justify-between items-center bg-slate-100 dark:bg-slate-700/50 p-2 rounded-md"><p className="text-sm truncate">{ruleFiles[id]?.name}</p><button onClick={() => onRuleDelete(id)} className="text-slate-400 hover:text-red-500 ml-2"><XIcon className="h-4 w-4"/></button></div>))}
-                <div {...getRootProps()} className="mt-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
-                    <input {...getInputProps()} />
-                    <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Add Rule Document(s) (.pdf, .docx)</p>
-                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
-                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
-                        <span>Your files are processed securely.</span>
-                    </div>
-                </div>
-            </div>}
-        </div>
-    );
-};
-
-const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadReport }) => (
-    <div className="bg-slate-100 dark:bg-slate-700/50 p-3 rounded-md">
-        <div className="flex justify-between items-center gap-4">
-            <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{manuscript.name}</p>
-                 <div className="mt-1">
-                    <ManuscriptStatusIndicator status={manuscript.status} />
-                </div>
-            </div>
-            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
-                {manuscript.status === 'completed' && (
-                    <>
-                        <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-yellow-700 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/50 rounded-md hover:bg-yellow-200 dark:hover:bg-yellow-900">View Report</button>
-                        <button onClick={() => onDownloadReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
-                    </>
-                )}
-                <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full"><ClipboardListIcon className="h-4 w-4"/></button>
-                <button onClick={() => onManuscriptDelete(manuscript.id)} title="Delete" className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"><TrashIcon className="h-4 w-4"/></button>
-            </div>
-        </div>
-        {manuscript.status === 'processing' && <div className="mt-2"><div className="w-full bg-slate-300 dark:bg-slate-600 rounded-full h-1.5"><div className="bg-yellow-500 h-1.5 rounded-full" style={{ width: `${manuscript.progress || 0}%` }}></div></div></div>}
-    </div>
-);
-
-
-const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadReport }) => {
-    const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
-    return (
-         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
-            <button onClick={() => onExpandToggle(folder.id)} className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                <div><p className="font-bold text-lg text-slate-800 dark:text-slate-100">{folder.name}</p><div className="mt-1" onClick={e => e.stopPropagation()}><select value={folder.profileId || ''} onChange={e => onMapProfile(e.target.value || null)} className="text-sm bg-slate-100 dark:bg-slate-700 border rounded-md p-1 focus:ring-yellow-500 focus:border-yellow-500"><option value="">-- Map a Profile --</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
-                <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
-            </button>
-            {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadReport={onDownloadReport} />)}</div>
-                <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 text-slate-500 hover:text-yellow-600 dark:hover:text-yellow-400 transition-colors">
-                    <input {...getInputProps()} />
-                    <UploadIcon className="h-8 w-8 mx-auto" />
-                    <p className="mt-2 text-sm">Upload Manuscripts (.pdf, .docx)</p>
-                    <div className="mt-2 flex items-center justify-center text-xs text-slate-500">
-                        <ShieldCheckIcon className="h-4 w-4 mr-1.5 text-green-500"/>
-                        <span>Your files are processed securely.</span>
-                    </div>
-                </div>
-            </div>}
         </div>
     );
 };

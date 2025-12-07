@@ -1,103 +1,108 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation, EditorialReport, IntegrityIssue, BookMetadataIssue, VisualAssetIssue, BookEditorialIssue } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set.");
-}
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import {
+    ExtractedAsset,
+    ComplianceFinding,
+    JournalRecommendation,
+    ManuscriptIssue,
+    ManuscriptScores,
+    MetadataAnalysisReport,
+    PeerReviewSimulation,
+    EditorialReport,
+    IntegrityIssue,
+    BookStructuralIssue,
+    ReadabilityIssue,
+    BookMetadataIssue,
+    VisualAssetIssue,
+    BookEditorialIssue,
+    AssetType
+} from '../types';
+
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Schema for assets found on a single page
-const PAGE_METADATA_SCHEMA = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      assetId: { type: Type.STRING, description: 'A unique identifier for the asset, e.g., "Figure 1.1", "Table 2".' },
-      assetType: {
-        type: Type.STRING,
-        enum: ['Figure', 'Table', 'Image', 'Equation', 'Map', 'Graph'],
-        description: 'The type of the asset.',
-      },
-      preview: {
-        type: Type.STRING,
-        description: 'A brief, one-sentence textual description or the content of the asset.',
-      },
-      altText: {
-        type: Type.STRING,
-        description: 'A detailed, context-aware alternative text for accessibility purposes.',
-      },
-      keywords: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        description: 'A list of 3-5 relevant keywords for the asset.',
-      },
-      taxonomy: {
-        type: Type.STRING,
-        description: 'A hierarchical classification for the asset, following the IPTC Media Topics standard. For example: "sport > association football (soccer)".',
-      },
-      boundingBox: {
-        type: Type.OBJECT,
-        description: 'The bounding box of the asset on its page. All values are percentages (0-100).',
-        properties: {
-            x: { type: Type.NUMBER },
-            y: { type: Type.NUMBER },
-            width: { type: Type.NUMBER },
-            height: { type: Type.NUMBER },
-        },
-        required: ['x', 'y', 'width', 'height'],
-      },
-    },
-    required: ['assetId', 'assetType', 'preview', 'altText', 'keywords', 'taxonomy', 'boundingBox'],
-  },
-};
+async function apiCallWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+    try {
+        return await fn();
+    } catch (error: any) {
+        if (retries > 0 && (error.status === 429 || error.status === 503)) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return apiCallWithRetry(fn, retries - 1, delay * 2);
+        }
+        throw error;
+    }
+}
 
+// --- Schemas ---
 
-const SINGLE_ASSET_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    assetId: { type: Type.STRING, description: 'A suggested unique identifier for the asset, e.g., "Figure X", "Table Y".' },
-    assetType: {
-      type: Type.STRING,
-      enum: ['Figure', 'Table', 'Image', 'Equation', 'Map', 'Graph'],
-      description: 'The type of the asset.',
-    },
-    preview: {
-      type: Type.STRING,
-      description: 'A brief, one-sentence textual description or the content of the asset (e.g., the equation itself). This will be used as a preview.',
-    },
-    altText: {
-      type: Type.STRING,
-      description: 'A detailed, context-aware alternative text for accessibility purposes, fully describing the asset.',
-    },
-    keywords: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'A list of 3-5 relevant keywords for the asset.',
-    },
-    taxonomy: {
-      type: Type.STRING,
-      description: 'A hierarchical classification for the asset, following the IPTC Media Topics standard. For example: "sport > association football (soccer)".',
-    },
-  },
-  required: ['assetId', 'assetType', 'preview', 'altText', 'keywords', 'taxonomy'],
-};
-
-
-const COMPLIANCE_SCHEMA = {
+const ASSET_EXTRACTION_SCHEMA = {
     type: Type.ARRAY,
     items: {
         type: Type.OBJECT,
         properties: {
-            checkCategory: { type: Type.STRING, description: 'The category of the compliance check, e.g., "Title Format", "Author Affiliations", "Funding Statement", "Conflict of Interest Disclosure".' },
-            status: { type: Type.STRING, enum: ['pass', 'fail', 'warn'], description: 'The compliance status for this specific check. Use "pass" if compliant, "fail" for clear violations, and "warn" for ambiguities or potential issues.' },
-            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the finding.' },
-            manuscriptQuote: { type: Type.STRING, description: 'The exact, brief quote from the manuscript that is relevant to the finding. If no specific quote applies (e.g., something is missing), state that clearly.' },
-            manuscriptPage: { type: Type.NUMBER, description: 'The page number in the manuscript where the quote is found or where the issue occurs.' },
-            ruleContent: { type: Type.STRING, description: 'The exact rule or guideline quoted from the rules document that is being checked against.' },
-            rulePage: { type: Type.NUMBER, description: 'The page number in the rules document where the rule is found.' },
-            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to address the issue to become compliant.' }
+            assetType: { type: Type.STRING, enum: Object.values(AssetType) },
+            preview: { type: Type.STRING },
+            altText: { type: Type.STRING },
+            keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+            taxonomy: { type: Type.STRING },
+            boundingBox: {
+                type: Type.OBJECT,
+                properties: {
+                    x: { type: Type.NUMBER },
+                    y: { type: Type.NUMBER },
+                    width: { type: Type.NUMBER },
+                    height: { type: Type.NUMBER }
+                }
+            }
         },
-        required: ['checkCategory', 'status', 'summary', 'manuscriptQuote', 'manuscriptPage', 'ruleContent', 'rulePage', 'recommendation']
+        required: ['assetType', 'altText', 'keywords', 'taxonomy']
+    }
+};
+
+const SINGLE_ASSET_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        assetType: { type: Type.STRING, enum: Object.values(AssetType) },
+        preview: { type: Type.STRING },
+        altText: { type: Type.STRING },
+        keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        taxonomy: { type: Type.STRING },
+    },
+    required: ['assetType', 'altText', 'keywords', 'taxonomy']
+};
+
+const COMPLIANCE_CHECK_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        findings: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    checkCategory: { type: Type.STRING },
+                    status: { type: Type.STRING, enum: ['pass', 'fail', 'warn'] },
+                    summary: { type: Type.STRING },
+                    manuscriptQuote: { type: Type.STRING },
+                    manuscriptPage: { type: Type.NUMBER },
+                    ruleContent: { type: Type.STRING },
+                    rulePage: { type: Type.NUMBER },
+                    recommendation: { type: Type.STRING },
+                },
+                required: ['checkCategory', 'status', 'summary', 'recommendation']
+            }
+        },
+        recommendations: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    journalName: { type: Type.STRING },
+                    publisher: { type: Type.STRING },
+                    issn: { type: Type.STRING },
+                    field: { type: Type.STRING },
+                    reasoning: { type: Type.STRING },
+                }
+            }
+        }
     }
 };
 
@@ -106,159 +111,46 @@ const MANUSCRIPT_ANALYSIS_SCHEMA = {
     items: {
         type: Type.OBJECT,
         properties: {
-            issueCategory: { type: Type.STRING, enum: ['Grammar', 'Plagiarism Concern', 'Structural Integrity', 'Clarity', 'Ethical Concern', 'Spelling', 'Citation Integrity', 'Identifier Integrity'], description: 'The category of the issue found.' },
-            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. High priority issues are critical and must be addressed.' },
-            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
-            quote: { type: Type.STRING, description: 'The exact, brief quote from the manuscript where the issue occurs.' },
-            pageNumber: { type: Type.NUMBER, description: 'The page number in the manuscript where the quote is found.' },
-            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
+            issueCategory: { type: Type.STRING },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+            summary: { type: Type.STRING },
+            quote: { type: Type.STRING },
+            pageNumber: { type: Type.NUMBER },
+            recommendation: { type: Type.STRING },
         },
-        required: ['issueCategory', 'priority', 'summary', 'quote', 'pageNumber', 'recommendation']
-    }
-};
-
-const BOOK_STRUCTURAL_ANALYSIS_SCHEMA = {
-    type: Type.ARRAY,
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            issueCategory: { type: Type.STRING, enum: ['Chapter Sequence', 'Chapter Completeness', 'Formatting Consistency', 'Content Anomaly'], description: 'The category of the structural issue found.' },
-            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. High for major structural flaws, Medium for inconsistencies, Low for minor suggestions.' },
-            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
-            details: { type: Type.STRING, description: 'A detailed explanation of the issue found.' },
-            location: { type: Type.STRING, description: 'The specific location of the issue, e.g., "Chapter 5", "Between Chapter 2 and 3".' },
-            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation on how to fix the issue.' }
-        },
-        required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
-    }
-};
-
-const READABILITY_ANALYSIS_SCHEMA = {
-    type: Type.ARRAY,
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            issueCategory: { type: Type.STRING, enum: ['Readability Score', 'Tone Inconsistency', 'Clarity', 'Passive Voice'], description: 'The category of the language issue found.' },
-            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: 'The priority of the issue. Use Low for scores and general observations, Medium for passive voice, and High for significant clarity or tone problems.' },
-            summary: { type: Type.STRING, description: 'A concise one-sentence summary of the issue.' },
-            details: { type: Type.STRING, description: 'A detailed explanation. For readability, include the score (e.g., "Flesch-Kincaid: 45.2"). For tone, explain the difference. For clarity/passive voice, explain the problem.' },
-            location: { type: Type.STRING, description: 'The specific chapter or paragraph location of the issue.' },
-            quote: { type: Type.STRING, description: 'The exact quote from the manuscript that is relevant to the finding. Not required for general chapter scores or tone assessments.' },
-            recommendation: { type: Type.STRING, description: 'A detailed, actionable recommendation, including rewrite suggestions where applicable.' }
-        },
-        required: ['issueCategory', 'priority', 'summary', 'details', 'location', 'recommendation']
+        required: ['issueCategory', 'priority', 'summary', 'recommendation']
     }
 };
 
 const MANUSCRIPT_SCORING_SCHEMA = {
     type: Type.OBJECT,
     properties: {
-        complianceScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Score (0-100) for adherence to typical journal guidelines, based on the provided text." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-            required: ['score', 'reasoning']
-        },
-        scientificQualityScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Score (0-100) for the perceived scientific quality, methodology, and clarity of results." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        },
-        writingQualityScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Score (0-100) for grammar, style, clarity, and overall readability." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        },
-        citationMaturityScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Score (0-100) based on the diversity, recency, and apparent quality of cited sources in the bibliography." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        },
-        noveltyScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Score (0-100) based on the semantic analysis of the abstract and introduction to gauge the novelty of the research contribution." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        },
-        dataIntegrityRiskScore: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Risk score (0-100, where higher is RISKIER) for potential data integrity issues like inconsistent numbers or lack of statistical detail." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        },
-        editorAcceptanceLikelihood: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.NUMBER, description: "Approximated likelihood score (0-100) of an editor passing this manuscript to peer review, based on all factors." },
-                reasoning: { type: Type.STRING, description: "Brief justification for the score." }
-            },
-             required: ['score', 'reasoning']
-        }
-    },
-    required: [
-        'complianceScore', 
-        'scientificQualityScore', 
-        'writingQualityScore', 
-        'citationMaturityScore', 
-        'noveltyScore', 
-        'dataIntegrityRiskScore', 
-        'editorAcceptanceLikelihood'
-    ]
+        complianceScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        scientificQualityScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        writingQualityScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        citationMaturityScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        noveltyScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        dataIntegrityRiskScore: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+        editorAcceptanceLikelihood: { type: Type.OBJECT, properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } } },
+    }
 };
 
 const METADATA_ANALYSIS_SCHEMA = {
     type: Type.OBJECT,
     properties: {
-        predictedSectionType: { type: Type.STRING, description: "The likely type of the manuscript (e.g., 'Original Research', 'Review Article', 'Case Study')." },
-        generatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5-7 relevant keywords extracted from the text." },
+        predictedSectionType: { type: Type.STRING },
+        generatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
         orcidValidation: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    authorName: { type: Type.STRING },
-                    orcid: { type: Type.STRING },
-                    isValid: { type: Type.BOOLEAN, description: "True if the ORCID follows the correct format (16 digits, hyphens optional)." }
-                },
-                required: ['authorName', 'orcid', 'isValid']
-            }
+             type: Type.ARRAY, 
+             items: { type: Type.OBJECT, properties: { authorName: {type: Type.STRING}, orcid: {type: Type.STRING}, isValid: {type: Type.BOOLEAN} } }
         },
         fundingMetadata: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    funderName: { type: Type.STRING },
-                    grantNumber: { type: Type.STRING }
-                },
-                required: ['funderName']
-            }
+             type: Type.ARRAY,
+             items: { type: Type.OBJECT, properties: { funderName: {type: Type.STRING}, grantNumber: {type: Type.STRING} } }
         },
         suggestedTaxonomy: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    scheme: { type: Type.STRING, description: "The taxonomy scheme used (e.g., 'IPTC', 'MeSH')." },
-                    tags: { type: Type.ARRAY, items: { type: Type.STRING } }
-                },
-                required: ['scheme', 'tags']
-            }
+             type: Type.ARRAY,
+             items: { type: Type.OBJECT, properties: { scheme: {type: Type.STRING}, tags: {type: Type.ARRAY, items: {type: Type.STRING}} } }
         },
         correspondingAuthor: {
             type: Type.OBJECT,
@@ -266,72 +158,47 @@ const METADATA_ANALYSIS_SCHEMA = {
                 name: { type: Type.STRING },
                 email: { type: Type.STRING },
                 affiliation: { type: Type.STRING },
-                isComplete: { type: Type.BOOLEAN, description: "True if name, email, and affiliation are all present." }
-            },
-            required: ['name', 'email', 'affiliation', 'isComplete']
+                isComplete: { type: Type.BOOLEAN }
+            }
         }
-    },
-    required: ['predictedSectionType', 'generatedKeywords', 'orcidValidation', 'fundingMetadata', 'suggestedTaxonomy', 'correspondingAuthor']
+    }
 };
 
-const PEER_REVIEW_SIMULATION_SCHEMA = {
+const PEER_REVIEW_SCHEMA = {
     type: Type.OBJECT,
     properties: {
-        manuscriptSummary: { type: Type.STRING, description: "One-paragraph summary of the manuscript." },
-        strengths: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of key strengths." },
-        weaknesses: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of key weaknesses." },
-        reviewerConcerns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Five likely reviewer concerns." },
-        methodologicalGaps: { type: Type.STRING, description: "Summary of methodological gaps." },
-        reviewerQuestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Questions reviewers will likely ask." },
-        suitabilityForPeerReview: { type: Type.STRING, description: "Assessment of suitability for peer review." }
-    },
-    required: ['manuscriptSummary', 'strengths', 'weaknesses', 'reviewerConcerns', 'methodologicalGaps', 'reviewerQuestions', 'suitabilityForPeerReview']
+        manuscriptSummary: { type: Type.STRING },
+        strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+        weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+        reviewerConcerns: { type: Type.ARRAY, items: { type: Type.STRING } },
+        methodologicalGaps: { type: Type.STRING },
+        reviewerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        suitabilityForPeerReview: { type: Type.STRING },
+    }
 };
 
-const EDITORIAL_REPORT_SCHEMA = {
+const EDITORIAL_ENHANCEMENT_SCHEMA = {
     type: Type.OBJECT,
     properties: {
-        titleSuggestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 improved, SEO-friendly titles." },
-        abstractRewrite: {
-            type: Type.OBJECT,
-            properties: {
-                original: { type: Type.STRING, description: "The original abstract text found." },
-                rewritten: { type: Type.STRING, description: "The rewritten abstract, structured (Background, Methods, Results, Conclusion) and concise (approx 250 words)." },
-                note: { type: Type.STRING, description: "Explanation of what was improved." }
-            },
-            required: ['original', 'rewritten', 'note']
-        },
-        keywordSuggestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5-7 optimized keywords." },
-        ethicsStatement: { type: Type.STRING, description: "A generated standard ethics statement template appropriate for the likely study type." },
-        citationImprovements: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    original: { type: Type.STRING },
-                    suggestion: { type: Type.STRING, description: "Formatted citation example." }
-                },
-                required: ['original', 'suggestion']
-            },
-            description: "Examples of correct formatting for 3-5 references found in the text."
-        },
-        contentImprovements: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    type: { type: Type.STRING, enum: ['Grammar', 'Clarity', 'Redundancy', 'Flow'] },
-                    originalText: { type: Type.STRING },
-                    suggestedText: { type: Type.STRING },
-                    location: { type: Type.STRING, description: "e.g., 'Page 1, Paragraph 2'" },
-                    reason: { type: Type.STRING }
-                },
-                required: ['type', 'originalText', 'suggestedText', 'location', 'reason']
-            },
-            description: "3-5 sentences that are unclear, redundant, or grammatically poor, rewritten."
+        titleSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        abstractRewrite: { type: Type.OBJECT, properties: { original: { type: Type.STRING }, rewritten: { type: Type.STRING }, note: { type: Type.STRING } } },
+        keywordSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        ethicsStatement: { type: Type.STRING },
+        citationImprovements: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { original: { type: Type.STRING }, suggestion: { type: Type.STRING } } } },
+        contentImprovements: { 
+            type: Type.ARRAY, 
+            items: { 
+                type: Type.OBJECT, 
+                properties: { 
+                    type: { type: Type.STRING }, 
+                    originalText: { type: Type.STRING }, 
+                    suggestedText: { type: Type.STRING }, 
+                    location: { type: Type.STRING }, 
+                    reason: { type: Type.STRING } 
+                } 
+            } 
         }
-    },
-    required: ['titleSuggestions', 'abstractRewrite', 'keywordSuggestions', 'ethicsStatement', 'citationImprovements', 'contentImprovements']
+    }
 };
 
 const INTEGRITY_CHECK_SCHEMA = {
@@ -339,583 +206,390 @@ const INTEGRITY_CHECK_SCHEMA = {
     items: {
         type: Type.OBJECT,
         properties: {
-            category: { type: Type.STRING, enum: ['Ethics Approval', 'Consent Statement', 'Clinical Trial Registration', 'Conflict of Interest', 'Author Contribution', 'Data Integrity'], description: "The specific policy area being checked." },
-            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'N/A'], description: "The result of the check." },
-            finding: { type: Type.STRING, description: "A summary of the finding." },
-            snippet: { type: Type.STRING, description: "Relevant text from the manuscript supporting the finding." },
-            recommendation: { type: Type.STRING, description: "Actionable advice if the check failed or has a warning." }
-        },
-        required: ['category', 'status', 'finding', 'snippet', 'recommendation']
+            category: { type: Type.STRING },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'N/A'] },
+            finding: { type: Type.STRING },
+            snippet: { type: Type.STRING },
+            recommendation: { type: Type.STRING }
+        }
     }
 };
 
-const BOOK_METADATA_VALIDATION_SCHEMA = {
+const BOOK_STRUCTURAL_SCHEMA = {
     type: Type.ARRAY,
     items: {
         type: Type.OBJECT,
         properties: {
-            category: { type: Type.STRING, enum: ['TOC Mismatch', 'Chapter Numbering', 'Metadata Validation', 'Front Matter Discrepancy'], description: "The specific area being validated." },
-            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning'], description: "The result of the validation." },
-            summary: { type: Type.STRING, description: "A concise summary of the finding." },
-            details: { type: Type.STRING, description: "Detailed explanation of the discrepancy or validation result." },
-            recommendation: { type: Type.STRING, description: "Actionable advice to resolve the issue." }
-        },
-        required: ['category', 'status', 'summary', 'details', 'recommendation']
+            issueCategory: { type: Type.STRING },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+            summary: { type: Type.STRING },
+            details: { type: Type.STRING },
+            location: { type: Type.STRING },
+            recommendation: { type: Type.STRING }
+        }
     }
 };
 
-const VISUAL_ASSET_ANALYSIS_SCHEMA = {
+const READABILITY_SCHEMA = {
     type: Type.ARRAY,
     items: {
         type: Type.OBJECT,
         properties: {
-            category: { type: Type.STRING, enum: ['Numbering', 'Caption Style', 'Broken Reference', 'Placeholder', 'Resolution', 'Accessibility'], description: "The specific visual asset issue category." },
-            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'Info'], description: "The status of the check." },
-            description: { type: Type.STRING, description: "A description of the finding." },
-            location: { type: Type.STRING, description: "Location in the text (e.g. Chapter 2, Figure 2.1)." },
-            recommendation: { type: Type.STRING, description: "Actionable recommendation (e.g. suggested alt-text)." }
-        },
-        required: ['category', 'status', 'description', 'location', 'recommendation']
-    }
-};
-
-const BOOK_EDITORIAL_ANALYSIS_SCHEMA = {
-    type: Type.ARRAY,
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            category: { type: Type.STRING, enum: ['Grammar', 'Unclear Meaning', 'Repetition'], description: "The type of editorial issue." },
-            severity: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: "Severity of the issue." },
-            quote: { type: Type.STRING, description: "The problematic text snippet." },
-            location: { type: Type.STRING, description: "Location in the manuscript." },
-            suggestion: { type: Type.STRING, description: "Suggested correction or rewrite." }
-        },
-        required: ['category', 'severity', 'quote', 'location', 'suggestion']
+            issueCategory: { type: Type.STRING },
+            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+            summary: { type: Type.STRING },
+            details: { type: Type.STRING },
+            location: { type: Type.STRING },
+            quote: { type: Type.STRING },
+            recommendation: { type: Type.STRING }
+        }
     }
 };
 
 const BOOK_METADATA_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-        onix: {
-            type: Type.STRING,
-            description: 'A complete and well-formed ONIX 3.0 XML document containing all extracted metadata. This should include all mandatory fields for distribution platforms.'
-        },
-        marc: {
-            type: Type.STRING,
-            description: 'A human-readable text representation of MARC21 metadata. Each field should be on a new line, formatted like `100 1# $a Smith, John.\`). Include all essential fields.'
-        }
-    },
-    required: ['onix', 'marc']
-};
-
-const JOURNAL_RECOMMENDATION_SCHEMA = {
     type: Type.ARRAY,
     items: {
         type: Type.OBJECT,
         properties: {
-            journalName: { type: Type.STRING, description: "The full name of the recommended journal." },
-            publisher: { type: Type.STRING, description: "The publisher of the journal." },
-            issn: { type: Type.STRING, description: "The ISSN of the journal, if available." },
-            field: { type: Type.STRING, description: "The primary research field of the journal (e.g., 'Biomedical Engineering', 'Astrophysics')." },
-            reasoning: { type: Type.STRING, description: "A concise explanation for why this journal is a good fit, based on the manuscript's content, style, and references." },
-        },
-        required: ['journalName', 'publisher', 'field', 'reasoning'],
+            category: { type: Type.STRING },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning'] },
+            summary: { type: Type.STRING },
+            details: { type: Type.STRING },
+            recommendation: { type: Type.STRING }
+        }
     }
 };
 
-const COMPLIANCE_AND_RECOMMENDATION_SCHEMA = {
+const BOOK_VISUALS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'Info'] },
+            description: { type: Type.STRING },
+            location: { type: Type.STRING },
+            recommendation: { type: Type.STRING }
+        }
+    }
+};
+
+const BOOK_EDITORIAL_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING },
+            severity: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+            quote: { type: Type.STRING },
+            location: { type: Type.STRING },
+            suggestion: { type: Type.STRING }
+        }
+    }
+};
+
+const BOOK_METADATA_EXTRACTION_SCHEMA = {
     type: Type.OBJECT,
     properties: {
-        complianceFindings: COMPLIANCE_SCHEMA,
-        journalRecommendations: JOURNAL_RECOMMENDATION_SCHEMA
-    },
-    required: ['complianceFindings']
+        onix: { type: Type.STRING, description: "Full ONIX 3.0 XML record" },
+        marc: { type: Type.STRING, description: "Full MARC21 text record" }
+    }
 };
 
-const MAX_RETRIES = 5;
-const INITIAL_DELAY_MS = 2000;
 
-async function apiCallWithRetry<T>(apiCall: () => Promise<T>): Promise<T> {
-    let attempts = 0;
-    let delay = INITIAL_DELAY_MS;
+// --- API Functions ---
 
-    while (attempts < MAX_RETRIES) {
-        try {
-            return await apiCall();
-        } catch (error: any) {
-            attempts++;
-            // Check for both rate limit (429) and server overload (503 / UNAVAILABLE) errors.
-            const errorString = (error.message || error.toString()).toUpperCase();
-            const isRetriableError = errorString.includes('429') || 
-                                     errorString.includes('RESOURCE_EXHAUSTED') ||
-                                     errorString.includes('503') ||
-                                     errorString.includes('UNAVAILABLE');
-            
-            if (attempts < MAX_RETRIES && isRetriableError) {
-                console.warn(`Retriable error detected. Retrying in ${delay / 1000}s... (Attempt ${attempts}/${MAX_RETRIES})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 2; // Exponential backoff
-            } else {
-                console.error("API call failed after multiple retries or with a non-retriable error:", error);
-                throw error;
-            }
-        }
-    }
-    throw new Error("API call failed after maximum retries.");
+export async function extractAssetsFromPage(pageImageBase64: string, modelName: string): Promise<ExtractedAsset[]> {
+    const prompt = `Analyze this PDF page image. Identify all Figures, Tables, Images, Equations, Maps, and Graphs. 
+    For each, extract:
+    - Type (AssetType)
+    - A brief visual description (preview)
+    - Accessibility Alt Text
+    - Keywords (SEO)
+    - Taxonomy classification
+    - Bounding Box (0-100% relative coordinates)`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: {
+            parts: [
+                { inlineData: { mimeType: 'image/jpeg', data: pageImageBase64 } },
+                { text: prompt }
+            ]
+        },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: ASSET_EXTRACTION_SCHEMA,
+        },
+    }));
+
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) return [];
+    return JSON.parse(jsonText);
 }
 
-export async function extractAssetsFromPage(pageImageBase64: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber'>[]> {
-    const imagePart = { inlineData: { data: pageImageBase64, mimeType: 'image/jpeg' } };
-    const textPart = { text: "Analyze the provided image, which is a single page from a document. Find ALL assets (figures, tables, images, equations, maps, and graphs) on this page. For each asset, extract its metadata according to the schema. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification. If no assets are found, return an empty array." };
+export async function generateMetadataForCroppedImage(imageDataUrl: string, modelName: string): Promise<ExtractedAsset> {
+     // ImageDataUrl is "data:image/png;base64,..."
+    const base64 = imageDataUrl.split(',')[1];
+    const prompt = `Analyze this cropped image asset. Generate accessibility and SEO metadata:
+    - Determine Asset Type (Figure, Table, Image, etc.)
+    - Detailed Alt Text
+    - Keywords
+    - Taxonomy`;
 
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: { parts: [imagePart, textPart] },
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: PAGE_METADATA_SCHEMA,
-            },
-        }));
-        
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            console.warn("API returned empty response for page assets, returning empty array.");
-            return [];
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (!Array.isArray(parsedJson)) {
-            console.warn("API returned non-array for page assets, returning empty array.", parsedJson);
-            return [];
-        }
-        return parsedJson;
-
-    } catch (error) {
-        console.error("Error calling AI service for page processing:", error);
-        throw new Error("Failed to process page with the AI service.");
-    }
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: {
+            parts: [
+                { inlineData: { mimeType: 'image/png', data: base64 } },
+                { text: prompt }
+            ]
+        },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: SINGLE_ASSET_SCHEMA,
+        },
+    }));
+    
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No response from AI");
+    // Add dummy ID and other fields that will be overwritten by the caller
+    const result = JSON.parse(jsonText);
+    return { ...result, id: '', assetId: `Asset-${Math.floor(Math.random()*1000)}` };
 }
 
-export async function generateMetadataForCroppedImage(imageDataUrl: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
-  const imageData = imageDataUrl.split(',')[1];
-  const imagePart = { inlineData: { data: imageData, mimeType: 'image/png' } };
-  const textPart = { text: 'Analyze the provided image, which is a cropped asset from a document. Generate metadata for it according to the schema. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification.' };
+export async function generateMetadataForImage(base64Data: string, mimeType: string, modelName: string): Promise<ExtractedAsset> {
+    const prompt = `Analyze this image. Generate metadata: Asset Type, Alt Text, Keywords, Taxonomy.`;
 
-  const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: modelName,
-    contents: { parts: [imagePart, textPart] },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: SINGLE_ASSET_SCHEMA,
-    },
-  }));
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: {
+            parts: [
+                { inlineData: { mimeType: mimeType, data: base64Data } },
+                { text: prompt }
+            ]
+        },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: SINGLE_ASSET_SCHEMA,
+        },
+    }));
 
-  // FIX: Added a check for an empty or undefined response.text to prevent crashes.
-  const jsonText = response.text?.trim();
-  if (!jsonText) {
-    throw new Error("API returned empty response for single asset metadata.");
-  }
-  const parsedJson = JSON.parse(jsonText);
-    if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
-        throw new Error("API returned invalid format for single asset metadata.");
-    }
-  return parsedJson;
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No response from AI");
+    const result = JSON.parse(jsonText);
+     return { ...result, id: '', assetId: `Image-${Math.floor(Math.random()*1000)}` };
 }
 
-export async function generateMetadataForImage(imageBase64: string, mimeType: string, modelName: string): Promise<Omit<ExtractedAsset, 'id' | 'pageNumber' | 'boundingBox'>> {
-    const imagePart = { inlineData: { data: imageBase64, mimeType: mimeType } };
-    const textPart = { text: "Analyze the provided image. Generate all metadata fields according to the schema. For the assetId, create a short descriptive ID based on the image content. For the taxonomy field, use the IPTC Media Topics standard to create a hierarchical classification." };
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: { parts: [imagePart, textPart] },
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: SINGLE_ASSET_SCHEMA,
-            },
-        }));
-        
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            throw new Error("API returned empty response for image metadata.");
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
-            throw new Error("API returned invalid format for image metadata.");
-        }
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for image processing:", error);
-        throw new Error("Failed to process image with the AI service.");
-    }
-}
-
-export async function performComplianceCheck(manuscriptText: string, rulesText: string, modelName: string, isFirstChunk: boolean): Promise<{ findings: ComplianceFinding[]; recommendations: JournalRecommendation[] }> {
-    const journalRecommendationInstruction = isFirstChunk ? `
-        **2. Journal Recommendation System:**
-        Based on the manuscript's abstract, keywords, structure, and references, suggest 3-5 suitable journals for submission. Provide metadata for each recommendation according to the schema. Base this *only* on the content of this first chunk.
-    ` : `
-        **2. Journal Recommendation System:**
-        This is not the first chunk of the manuscript. Do not provide journal recommendations. Return an empty array for 'journalRecommendations'.
-    `;
-
+export async function performComplianceCheck(textChunk: string, rulesText: string, modelName: string, isFirstChunk: boolean): Promise<{ findings: ComplianceFinding[], recommendations: JournalRecommendation[] }> {
     const prompt = `
-        You are a meticulous compliance editor and an expert in academic publishing. Perform two tasks on the 'MANUSCRIPT CHUNK'.
+    Check this manuscript text against the provided submission guidelines/rules.
+    
+    MANUSCRIPT TEXT:
+    ${textChunk.substring(0, 25000)}
 
-        **1. Compliance Check:**
-        Compare the chunk against the 'RULES DOCUMENT'. For every rule you can verify, provide a finding. If evidence is not present, do not report on that rule.
+    RULES:
+    ${rulesText}
 
-        ${journalRecommendationInstruction}
-
-        Return your entire response as a single JSON object adhering to the schema, containing both 'complianceFindings' and 'journalRecommendations'.
-
-        MANUSCRIPT CHUNK:
-        ${manuscriptText}
-
-        RULES DOCUMENT TEXT:
-        ${rulesText}
+    Task:
+    1. Identify compliance issues (pass, fail, warn).
+    2. Provide specific evidence from the manuscript and the rule.
+    ${isFirstChunk ? '3. Based on the abstract/intro, recommend 3 suitable journals.' : ''}
     `;
 
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: COMPLIANCE_AND_RECOMMENDATION_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            console.warn("API returned empty response for compliance check.");
-            return { findings: [], recommendations: [] };
-        }
-        const parsedJson = JSON.parse(jsonText);
-        
-        const findings = Array.isArray(parsedJson.complianceFindings) ? parsedJson.complianceFindings : [];
-        const recommendations = isFirstChunk && Array.isArray(parsedJson.journalRecommendations) ? parsedJson.journalRecommendations : [];
-        
-        return { findings, recommendations };
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: COMPLIANCE_CHECK_SCHEMA,
+        },
+    }));
 
-    } catch (error) {
-        console.error("Error calling AI service for compliance check:", error);
-        throw new Error("Failed to perform compliance check with the AI service.");
-    }
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) return { findings: [], recommendations: [] };
+    const result = JSON.parse(jsonText);
+    return { findings: result.findings || [], recommendations: result.recommendations || [] };
 }
 
-export async function analyzeManuscript(manuscriptText: string, modelName: string): Promise<ManuscriptIssue[]> {
-    const prompt = `
-        You are an expert manuscript editor and technical pre-flight checker for a top-tier academic publisher. Your task is to perform a detailed analysis of the provided 'MANUSCRIPT CHUNK'. Your analysis must cover the following areas, and you must report every issue you find according to the provided JSON schema.
+export async function analyzeManuscript(text: string, modelName: string): Promise<ManuscriptIssue[]> {
+    const prompt = `Analyze this manuscript for: Grammar, Plagiarism Concerns, Structure, Clarity, Ethics, Spelling, Citations.
+    Return a list of issues.
+    TEXT: ${text.substring(0, 30000)}`;
 
-        **1. Standard Editorial Analysis:**
-        - **Grammar and Spelling:** Identify grammatical errors, typos, and awkward phrasing.
-        - **Clarity and Flow:** Check for unclear sentences, logical inconsistencies, and poor structural flow.
-        - **Ethical Concerns:** Flag potential ethical issues, such as the lack of a patient consent statement or indications of data manipulation.
-        - **Plagiarism Concern:** Identify sentences or paragraphs that appear highly unoriginal or are phrased in a way that suggests copying without attribution. This is a flag for human review, not a definitive check.
-
-        **2. Citation Integrity Check (Citation Breaks):**
-        - **Goal:** Find mismatches between in-text citations and the final reference list.
-        - **Process:**
-            a. Scan the entire chunk to identify all in-text citations (e.g., (Smith, 2023), [1], [5, 6], [9-12]).
-            b. Scan the "References" or "Bibliography" section to list all reference entries.
-            c. Cross-reference them. Report any of the following as a 'Citation Integrity' issue:
-               - An in-text citation that does not have a corresponding entry in the reference list.
-               - A reference list entry that is not cited anywhere in the text chunk.
-               - For numbered citations, any breaks in the numerical sequence (e.g., jumps from [15] to [17]).
-        - **Example Finding:** If the text cites "[22]" but reference 22 is missing, report that.
-
-        **3. Identifier Integrity Check (Broken Identifiers):**
-        - **Goal:** Find malformed, invalid, or non-resolvable identifiers within the reference list.
-        - **Process:**
-            a. Scan the reference list for identifiers like DOI, ISBN, ISSN, arXiv ID, and PubMed ID.
-            b. For each identifier, check for common formatting errors. Report any of the following as an 'Identifier Integrity' issue:
-               - **Broken DOI:** A DOI that does not start with a proper protocol (e.g., "https://doi.org/" or "doi:") or appears structurally incorrect.
-               - **Incorrect ISBN/ISSN:** An ISBN or ISSN that has an obviously incorrect number of digits or invalid characters.
-               - **Malformed arXiv/PubMed ID:** An identifier that does not follow the standard format for its type.
-        - **Example Finding:** If a reference has "DOI: 10.1000/xyz" (missing the protocol slash), report it as a broken identifier.
-        
-        **4. Figure and Table Integrity Check:**
-        - **Goal:** Verify the correct formatting, numbering, placement, and referencing of all figures and tables.
-        - **Process:**
-            a. Identify all figures and tables in the manuscript (e.g., "Figure 1", "Table 2").
-            b. Check for the following issues and report them as 'Structural Integrity' problems:
-               - **Numbering Sequence:** Ensure figures and tables are numbered sequentially (e.g., Figure 1, Figure 2, Figure 3). Report any gaps or out-of-order numbering.
-               - **Caption Presence & Structure:** Verify that every identified figure and table has a caption immediately following it. The caption must start with the correct label and number (e.g., "Figure 1.", "Table 2:").
-               - **In-text Mention:** For every figure and table, verify it is mentioned or cited in the main body of the text (e.g., "...as shown in Figure 1..."). Report any figures or tables that are not mentioned.
-               - **Placement Order:** Check if figures/tables are mentioned in the text *before* they appear. Report if, for example, Figure 3 is mentioned on page 5 but the actual figure appears on page 4.
-               - **Table Formatting:** From the text representation, identify potential formatting issues in tables, such as misaligned columns or tables that seem incomplete.
-               - **Figure Resolution (Disclaimer):** Report a 'Low' priority issue reminding the user to manually check that all figures meet the publisher's resolution requirements (e.g., 300 DPI), as you cannot check image resolution from text.
-
-        **Reporting Guidelines:**
-        - For every issue you identify, provide a finding according to the provided JSON schema.
-        - Assign a priority: 'High' (publication-blocking issues like citation breaks, missing captions), 'Medium' (significant issues like malformed DOIs, out-of-order figures), 'Low' (minor issues, resolution reminder).
-        - Be precise with quotes and page numbers.
-
-        MANUSCRIPT CHUNK:
-        ${manuscriptText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: MANUSCRIPT_ANALYSIS_SCHEMA,
-            },
-        }));
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            console.warn("API returned empty response for manuscript analysis, returning empty array.");
-            return [];
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (!Array.isArray(parsedJson)) {
-            console.warn("API returned non-array for manuscript analysis, returning empty array.", parsedJson);
-            return [];
-        }
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for manuscript analysis:", error);
-        throw new Error("Failed to perform manuscript analysis with the AI service.");
-    }
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: MANUSCRIPT_ANALYSIS_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
 }
 
-export async function analyzeBookStructure(manuscriptText: string, modelName: string): Promise<BookStructuralIssue[]> {
-    const prompt = `
-        You are an expert structural editor for a major book publisher. Your task is to perform a detailed structural analysis of the provided book manuscript text. Focus exclusively on the following book-specific structural elements. Report every issue you find according to the provided JSON schema.
+export async function scoreManuscript(text: string, modelName: string): Promise<ManuscriptScores> {
+    const prompt = `Score this manuscript (0-100) on: Compliance, Scientific Quality, Writing Quality, Citation Maturity, Novelty, Data Integrity Risk, Editor Acceptance Likelihood. Provide reasoning.
+    TEXT: ${text.substring(0, 30000)}`;
 
-        **1. Chapter Sequence, Numbering, and Hierarchy:**
-        - Validate that all chapters are numbered sequentially (e.g., Chapter 1, Chapter 2, Chapter 3) without gaps or duplicates.
-        - Detect any missing chapters based on textual references (e.g., "as discussed in Chapter 4," when Chapter 4 is not present).
-        - Identify misplaced chapters that seem out of logical order.
-        - Check for consistent hierarchy in headings (e.g., H1 for chapters, H2 for main sections, H3 for sub-sections).
-
-        **2. Chapter Completeness:**
-        - For each chapter, verify the presence of essential sections. Assume a standard chapter includes an introduction, several sub-headed sections, and a summary or conclusion. Flag chapters that are missing these key components.
-
-        **3. Formatting Consistency:**
-        - Check for consistent formatting of key elements across chapters. This includes:
-            - Chapter titles (e.g., are they all "Chapter [Number]: [Title]" or just "[Title]"?).
-            - Heading styles.
-            - Block quotes, lists, and other formatted text.
-        
-        **4. Content Anomaly Detection:**
-        - Flag chapters that have an unusually low or high word count compared to the average chapter length in the manuscript. This could indicate an incomplete or overly dense chapter. Provide the word count and the average.
-
-        **Reporting Guidelines:**
-        - For every issue you identify, provide a finding according to the schema.
-        - Assign a priority: 'High' for missing chapters or major sequence breaks, 'Medium' for inconsistent formatting or missing sections, 'Low' for word count anomalies.
-        - Be precise with your descriptions and locations.
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: BOOK_STRUCTURAL_ANALYSIS_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            console.warn("API returned empty response for book structure analysis, returning empty array.");
-            return [];
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (!Array.isArray(parsedJson)) {
-            console.warn("API returned non-array for book structure analysis, returning empty array.", parsedJson);
-            return [];
-        }
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for book structure analysis:", error);
-        throw new Error("Failed to perform book structure analysis with the AI service.");
-    }
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: MANUSCRIPT_SCORING_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No scores generated");
+    return JSON.parse(jsonText);
 }
 
-export async function analyzeReadability(manuscriptText: string, modelName: string): Promise<ReadabilityIssue[]> {
-    const prompt = `
-        You are an expert developmental editor specializing in language, readability, and style. Your task is to perform a detailed, chapter-by-chapter analysis of the provided book manuscript text. Report every issue you find according to the provided JSON schema.
+export async function analyzeJournalMetadata(text: string, modelName: string): Promise<MetadataAnalysisReport> {
+    const prompt = `Analyze manuscript metadata. Predict section type, generate keywords, validate ORCIDs (mock validation), extract funding info, suggest taxonomy, and check corresponding author details.
+    TEXT: ${text.substring(0, 15000)}`;
 
-        **1. Readability Scoring (Chapter-wise):**
-        - For each chapter, calculate a Flesch-Kincaid Reading Ease score.
-        - Report this score for every chapter as a 'Readability Score' issue with 'Low' priority.
-        - In the 'details' field, state the score clearly (e.g., "Flesch-Kincaid Reading Ease: 65.3").
-        - In the 'recommendation' field, provide a brief interpretation of the score (e.g., "This score is appropriate for a general audience.").
-
-        **2. Tone Consistency Analysis:**
-        - Assess the overall tone of the manuscript.
-        - Identify any chapters where the tone significantly deviates from the established norm (e.g., a chapter is suddenly very formal in an otherwise informal book).
-        - Report this as a 'Tone Inconsistency' issue.
-
-        **3. Clarity and Complexity Flagging:**
-        - Scan each chapter for paragraphs that are overly complex, convoluted, or unclear.
-        - For each flagged paragraph, create a 'Clarity' issue.
-        - Include the problematic paragraph in the 'quote' field.
-        - Provide a specific rewrite suggestion in the 'recommendation' field to improve clarity.
-
-        **4. Passive Voice Detection:**
-        - Identify sentences that use the passive voice.
-        - If a paragraph contains excessive passive voice usage (e.g., more than two instances), flag it.
-        - Report this as a 'Passive Voice' issue.
-        - Include the paragraph in the 'quote' field.
-        - In the 'recommendation' field, suggest rewriting the sentences in the active voice and provide an example.
-
-        **Reporting Guidelines:**
-        - Provide a finding for every chapter's readability score.
-        - Only report findings for tone, clarity, and passive voice if an issue is detected.
-        - Be precise with your locations, quotes, and recommendations.
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: READABILITY_ANALYSIS_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            console.warn("API returned empty response for readability analysis, returning empty array.");
-            return [];
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (!Array.isArray(parsedJson)) {
-            console.warn("API returned non-array for readability analysis, returning empty array.", parsedJson);
-            return [];
-        }
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for readability analysis:", error);
-        throw new Error("Failed to perform readability analysis with the AI service.");
-    }
+     const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: METADATA_ANALYSIS_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No metadata analysis generated");
+    return JSON.parse(jsonText);
 }
 
-export async function validateBookMetadata(manuscriptText: string, modelName: string): Promise<BookMetadataIssue[]> {
-    const prompt = `
-        You are an expert production editor and metadata specialist for book publishing. Your task is to perform a detailed verification of the metadata, Table of Contents (TOC), and front matter of the provided book manuscript. Check for consistency, completeness, and accuracy.
+export async function simulatePeerReview(text: string, modelName: string): Promise<PeerReviewSimulation> {
+    const prompt = `Simulate a peer review. Summarize, list strengths/weaknesses, concerns, gaps, questions, and suitability.
+    TEXT: ${text.substring(0, 30000)}`;
 
-        Perform the following checks and report every finding according to the provided JSON schema.
-
-        **1. Table of Contents (TOC) Verification:**
-        - Identify the Table of Contents section.
-        - Compare the chapters and sections listed in the TOC against the actual chapter headers found throughout the body of the manuscript.
-        - **Fail** if there are missing chapters in the TOC or extra chapters in the body.
-        - **Warning** if title wording differs slightly between TOC and body.
-        - **Pass** if they match perfectly.
-
-        **2. Chapter Numbering Check:**
-        - Verify that the sequence of chapter numbers in the TOC is logical (e.g., 1, 2, 3...).
-        - Verify that the sequence of chapter numbers in the body is logical and matches the TOC.
-        - Flag any gaps, duplicates, or non-sequential numbering as a 'Fail'.
-
-        **3. Metadata Validation (Front Matter):**
-        - Scan the front matter (Title Page, Copyright Page, Preface, etc.) for key metadata:
-            - **Author Bios:** Are they present? Do they match the author names on the title page?
-            - **ISBN:** Is a valid ISBN-13 present on the copyright page? (Check format only, e.g., 978-...).
-            - **Edition Statement:** Is the edition clearly stated (e.g., First Edition, 2nd Edition)?
-        - Report missing mandatory items (ISBN, Bios) as 'Fail' or 'Warning'.
-
-        **4. Front Matter Discrepancy Check:**
-        - Compare the Title Page metadata (Book Title, Subtitle, Author Names) against:
-            - The headers/footers (if detectable).
-            - The Copyright Page information.
-            - The TOC header.
-        - Flag any spelling differences or inconsistencies in names or titles as a 'Fail'.
-
-        **Reporting Guidelines:**
-        - For each of the 4 categories above, provide at least one finding (Pass, Fail, or Warning).
-        - Be specific in the 'details' field (e.g., "Chapter 4 is listed in TOC but header in text says Chapter 5").
-        - Provide a 'recommendation' for fixing any issues.
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText.substring(0, 50000)} // Limit context to ensure front matter and TOC are covered along with a good portion of chapters
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: BOOK_METADATA_VALIDATION_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) throw new Error("API returned empty response for book metadata validation.");
-        const result = JSON.parse(jsonText);
-        if (!Array.isArray(result)) throw new Error("API returned invalid format for book metadata validation.");
-        return result;
-    } catch (error) {
-        console.error("Error calling AI service for book metadata validation:", error);
-        throw new Error("Failed to validate book metadata.");
-    }
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: PEER_REVIEW_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No peer review generated");
+    return JSON.parse(jsonText);
 }
 
-export async function analyzeBookVisuals(manuscriptText: string, modelName: string): Promise<VisualAssetIssue[]> {
-    const prompt = `
-        You are a production editor for a technical book publisher. Analyze the provided manuscript for visual asset integrity.
-        
-        Tasks:
-        1. **Numbering:** Check if Figures and Tables are numbered sequentially (e.g. Figure 1.1, 1.2). Flag gaps or duplicates.
-        2. **Captions:** Verify every figure/table has a caption with consistent styling.
-        3. **References:** Check that every figure/table is referenced in the text (e.g., "see Figure 1.1"). Flag "orphaned" figures.
-        4. **Placeholders:** Detect placeholder text like "Insert Figure X here".
-        5. **Resolution Indicators:** Look for text notes like "[low res]" or filenames indicating poor quality.
-        6. **Accessibility:** For 3 key figures found, suggest descriptive Alt Text based on the caption/context.
+export async function generateEditorialEnhancements(text: string, modelName: string): Promise<EditorialReport> {
+    const prompt = `Act as an Editorial Assistant. Suggest titles, rewrite abstract, keywords, ethics statement, citation fixes, and content improvements (grammar/clarity).
+    TEXT: ${text.substring(0, 30000)}`;
 
-        MANUSCRIPT TEXT:
-        ${manuscriptText.substring(0, 40000)}
-    `;
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: EDITORIAL_ENHANCEMENT_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No editorial report generated");
+    return JSON.parse(jsonText);
+}
 
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: VISUAL_ASSET_ANALYSIS_SCHEMA,
-            },
-        }));
-        const jsonText = response.text?.trim();
-        if (!jsonText) return [];
-        const result = JSON.parse(jsonText);
-        return Array.isArray(result) ? result : [];
-    } catch (error) {
-        console.error("Error analyzing book visuals:", error);
-        throw new Error("Failed to analyze book visuals.");
-    }
+export async function performIntegrityCheck(text: string, modelName: string): Promise<IntegrityIssue[]> {
+    const prompt = `Perform a Research Integrity Check. Check for Ethics Approval, Consent, Clinical Trial Registration, Conflict of Interest, Author Contribution, Data Integrity.
+    TEXT: ${text.substring(0, 30000)}`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: INTEGRITY_CHECK_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
+}
+
+export async function analyzeBookStructure(text: string, modelName: string): Promise<BookStructuralIssue[]> {
+    const prompt = `Analyze Book Structure: Chapter Sequence, Completeness, Formatting, Content Anomalies.
+    TEXT: ${text.substring(0, 30000)}`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: BOOK_STRUCTURAL_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
+}
+
+export async function analyzeReadability(text: string, modelName: string): Promise<ReadabilityIssue[]> {
+    const prompt = `Analyze Book Readability: Score, Tone, Clarity, Passive Voice.
+    TEXT: ${text.substring(0, 30000)}`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: READABILITY_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
+}
+
+export async function validateBookMetadata(text: string, modelName: string): Promise<BookMetadataIssue[]> {
+    const prompt = `Validate Book Metadata & TOC against content. Check TOC Mismatch, Chapter Numbering, Front Matter.
+    TEXT: ${text.substring(0, 10000)}`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: BOOK_METADATA_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
+}
+
+export async function analyzeBookVisuals(text: string, modelName: string): Promise<VisualAssetIssue[]> {
+    const prompt = `Analyze textual references to Book Visuals. Check Numbering, Captions, Broken Refs, Placeholders.
+    TEXT: ${text.substring(0, 30000)}`;
+
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: BOOK_VISUALS_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    return jsonText ? JSON.parse(jsonText) : [];
 }
 
 export async function analyzeBookEditorial(manuscriptText: string, modelName: string): Promise<BookEditorialIssue[]> {
     const prompt = `
-        You are a professional copyeditor. Perform a granular editorial check on the manuscript.
-        
-        Tasks:
-        1. **Grammar:** Identify clear grammatical errors (subject-verb agreement, etc.).
-        2. **Clarity:** Flag sentences with ambiguous or unclear meanings.
-        3. **Repetition:** Detect unintentional repeated words (e.g., "the the").
+        You are an expert copyeditor for high-quality book manuscripts. Perform a precise editorial check on the text provided.
 
-        Report findings with locations and suggested fixes.
+        **Tasks:**
+        1. **Grammar:** Identify objective grammatical errors such as subject-verb disagreement, incorrect verb tense, dangling modifiers, and misuse of articles.
+           - **CRITICAL EXCLUSION:** Do NOT report on hyphenation, en-dashes, em-dashes, or compound words. Assume all hyphenation choices are intentional stylistic decisions.
+        
+        2. **Unclear Meaning (Style):** Flag sentences that are convoluted, ambiguous, or poorly constructed to the point where meaning is lost. Identify awkward phrasing that disrupts the reading flow. Map these to the 'Unclear Meaning' category.
+        
+        3. **Repetition:** Detect unintentional repetition of words (e.g., "the the") or redundancy in immediate proximity.
+
+        Report findings using the JSON schema provided.
 
         MANUSCRIPT TEXT:
         ${manuscriptText.substring(0, 30000)}
@@ -927,10 +601,11 @@ export async function analyzeBookEditorial(manuscriptText: string, modelName: st
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
-                responseSchema: BOOK_EDITORIAL_ANALYSIS_SCHEMA,
+                responseSchema: BOOK_EDITORIAL_SCHEMA,
             },
         }));
-        const jsonText = response.text?.trim();
+        // Clean potential markdown formatting from the response
+        const jsonText = response.text?.replace(/```json|```/g, '').trim();
         if (!jsonText) return [];
         const result = JSON.parse(jsonText);
         return Array.isArray(result) ? result : [];
@@ -940,262 +615,19 @@ export async function analyzeBookEditorial(manuscriptText: string, modelName: st
     }
 }
 
-export async function scoreManuscript(manuscriptText: string, modelName: string): Promise<ManuscriptScores> {
-    const prompt = `
-        You are an experienced peer reviewer and journal editor for a top-tier scientific journal. Your task is to provide a comprehensive quantitative assessment of the provided manuscript text. Analyze the entire document and return a JSON object with scores for each of the following categories, from 0 to 100. For each score, provide a brief, one-sentence justification.
+export async function extractBookMetadata(text: string, modelName: string): Promise<{ onix: string, marc: string }> {
+    const prompt = `Extract Book Metadata from text. Generate a full valid ONIX 3.0 XML record and a MARC21 text record.
+    TEXT: ${text.substring(0, 15000)}`;
 
-        - **Compliance Score:** How well does the manuscript structure (e.g., Abstract, Introduction, Methods, etc.) adhere to standard academic formats?
-        - **Scientific Quality Score:** Based on the abstract, methods, and results, how sound and rigorous does the science appear to be?
-        - **Writing Quality Score:** Assess the overall language, grammar, clarity, and style.
-        - **Citation Maturity Score:** Evaluate the bibliography. Are the sources recent, diverse, and from reputable journals?
-        - **Novelty Score:** From the abstract and introduction, how significant and novel does the research contribution seem?
-        - **Data Integrity Risk Score:** (Higher score = HIGHER RISK) Are there any red flags, such as inconsistencies in reported data, lack of statistical detail, or potential signs of manipulation? A low risk is a low score.
-        - **Editor Acceptance Likelihood:** Based on all the above factors, what is the estimated likelihood that a journal editor would send this manuscript out for peer review?
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: MANUSCRIPT_SCORING_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            throw new Error("API returned empty response for manuscript scoring.");
-        }
-        const parsedJson = JSON.parse(jsonText);
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for manuscript scoring:", error);
-        throw new Error("Failed to perform manuscript scoring with the AI service.");
-    }
-}
-
-export async function analyzeJournalMetadata(manuscriptText: string, modelName: string): Promise<MetadataAnalysisReport> {
-    const prompt = `
-        You are an expert metadata specialist for academic publishing. Analyze the provided manuscript text (focusing on the title page, abstract, and declarations) to extract structured metadata.
-
-        1. **Article Type:** Predict the section type (e.g., Research, Review, Case Report).
-        2. **Keywords:** Generate 5-7 relevant keywords.
-        3. **ORCID Validation:** Find author ORCIDs. specific format checking is required (16 digits).
-        4. **Funding:** Extract funder names and grant numbers.
-        5. **Taxonomy:** Suggest classification tags using standard schemes (e.g., MeSH for medical, IPTC for general).
-        6. **Corresponding Author:** Extract details and check if email and affiliation are present.
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText.substring(0, 15000)} // Limiting text context for metadata which usually appears early
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: METADATA_ANALYSIS_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) throw new Error("API returned empty response for metadata analysis.");
-        return JSON.parse(jsonText);
-    } catch (error) {
-        console.error("Error calling AI service for metadata analysis:", error);
-        throw new Error("Failed to perform metadata analysis.");
-    }
-}
-
-export async function simulatePeerReview(manuscriptText: string, modelName: string): Promise<PeerReviewSimulation> {
-    const prompt = `
-        You are an experienced peer reviewer for a high-impact academic journal. Conduct a preliminary review of the provided manuscript text.
-        
-        Provide the following structured feedback:
-        1. **Manuscript Summary:** A concise one-paragraph summary of the manuscript.
-        2. **Strengths:** A list of the key strengths of the study.
-        3. **Weaknesses:** A list of the key weaknesses or limitations.
-        4. **Reviewer Concerns:** Five specific concerns a reviewer is likely to raise (e.g., statistical methods, sample size, clarity of results).
-        5. **Methodological Gaps:** A summary of any potential methodological gaps or missing information.
-        6. **Reviewer Questions:** Specific questions reviewers will likely ask the authors to clarify.
-        7. **Suitability:** An overall assessment of its suitability for peer review (e.g., "Ready for review", "Needs major revision first").
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText.substring(0, 25000)} // Limiting text to ensure fit within context window while providing sufficient detail
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: PEER_REVIEW_SIMULATION_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) throw new Error("API returned empty response for peer review simulation.");
-        return JSON.parse(jsonText);
-    } catch (error) {
-        console.error("Error calling AI service for peer review simulation:", error);
-        throw new Error("Failed to perform peer review simulation.");
-    }
-}
-
-export async function generateEditorialEnhancements(manuscriptText: string, modelName: string): Promise<EditorialReport> {
-    const prompt = `
-        Act as a professional academic copyeditor and editorial assistant. Analyze the provided manuscript text and generate active improvements and fixes.
-
-        1. **Abstract Makeover:** Identify the abstract. Rewrite it to be structured (Background, Methods, Results, Conclusion) and concise (approx 250 words). Provide the original text for comparison.
-        2. **Title Optimization:** Propose 3 improved, SEO-friendly titles that better capture the study's impact.
-        3. **Keyword Optimization:** Generate 5-7 optimized keywords.
-        4. **Citation Check:** Detect the citation style used. Provide 3-5 examples of citations found in the text and how they *should* be formatted if they were in APA 7 style (as a standard reference).
-        5. **Content Improvements:** Identify 3-5 specific sentences or short paragraphs that are unclear, redundant, or grammatically poor. Rewrite them to improve flow and clarity. State the location and reason.
-        6. **Ethics Statement:** Check if an Ethics Statement exists. If not, generate a standard template statement appropriate for the likely study type (human, animal, or none).
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText.substring(0, 20000)}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: EDITORIAL_REPORT_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) throw new Error("API returned empty response for editorial enhancements.");
-        return JSON.parse(jsonText);
-    } catch (error) {
-        console.error("Error calling AI service for editorial enhancements:", error);
-        throw new Error("Failed to generate editorial enhancements.");
-    }
-}
-
-export async function performIntegrityCheck(manuscriptText: string, modelName: string): Promise<IntegrityIssue[]> {
-    const prompt = `
-        You are a Research Integrity Officer for a prestigious scientific journal. Your task is to audit the provided manuscript for critical policy and integrity issues. This is NOT a plagiarism check, but a deep audit of research ethics and data integrity.
-
-        Analyze the text for the following 6 specific categories:
-
-        1. **Ethics Approval:** Does the study involve human or animal subjects? If so, is there a clear statement of approval from an IRB or Ethics Committee (including protocol numbers if possible)? If not applicable, is that stated?
-        2. **Consent Statement:** If human subjects are involved, is there an explicit statement that informed consent was obtained?
-        3. **Clinical Trial Registration:** If this is a clinical trial, is a registry ID (e.g., NCT number) provided?
-        4. **Conflict of Interest:** Is there a disclosure statement regarding competing interests or funding conflicts?
-        5. **Author Contribution:** Is there a section detailing individual author contributions (e.g., CRediT taxonomy)? If multiple authors exist but no contribution statement is found, flag it.
-        6. **Data Integrity Indicators:** Scan the textual representation of data tables and results. Are there obvious signs of fabrication, such as:
-           - Identical standard deviations across different groups?
-           - Perfect linearity or impossible statistical precision?
-           - Discrepancies between abstract numbers and results section numbers?
-           (Note: You are analyzing text, so focus on logical inconsistencies and textual red flags).
-
-        For EACH category, determine a status:
-        - 'Pass': The requirement is fully met.
-        - 'Fail': The requirement is clearly missing or violated.
-        - 'Warning': The requirement is vague, ambiguous, or potential issues exist.
-        - 'N/A': The category does not apply to this study type (e.g., no human subjects).
-
-        Provide a concise finding, a relevant text snippet (if available), and a recommendation.
-
-        MANUSCRIPT TEXT:
-        ${manuscriptText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: INTEGRITY_CHECK_SCHEMA,
-            },
-        }));
-        
-        const jsonText = response.text?.trim();
-        if (!jsonText) throw new Error("API returned empty response for integrity check.");
-        const result = JSON.parse(jsonText);
-        if(!Array.isArray(result)) throw new Error("API returned invalid format for integrity check.");
-        return result;
-    } catch (error) {
-        console.error("Error calling AI service for integrity check:", error);
-        throw new Error("Failed to perform integrity check.");
-    }
-}
-
-export async function extractBookMetadata(fullText: string, modelName: string): Promise<{ onix: string; marc: string }> {
-    const prompt = `
-        You are an expert metadata librarian and publishing professional. Your task is to analyze the full text of the provided book or journal and extract comprehensive bibliographic metadata required for commercial distribution and library cataloging. Generate two distinct, standards-compliant metadata records.
-
-        1.  **ONIX 3.0:** Create a complete, well-formed, and valid ONIX 3.0 XML document. This must include all mandatory fields required for major distribution platforms. Pay close attention to:
-            - **RecordReference:** A unique identifier for this ONIX record.
-            - **ProductIdentifier:** Include all available identifiers like ISBN-13 (ProprietaryID with IDTypeName "ISBN-13"), ISSN, and DOI.
-            - **DescriptiveDetail:**
-                - **TitleDetail:** Full title, subtitle. For journals, include Volume and Issue numbers (e.g., using <PartNumber> for issue).
-                - **Contributor:** All authors, editors, etc., with correct roles and biographical notes if available.
-                - **Language:** Language of the text.
-                - **Extent:** Total number of pages (use ExtentType '00' and ExtentUnit '03').
-                - **Subject:** Provide multiple subject headings using both BISAC (for North America) and Thema (international) schemes. Extract keywords and topics from the text to generate these.
-            - **CollateralDetail:**
-                - **TextContent:** Include a detailed summary/description (TextType code 03) and a full table of contents (TextType code 04) if present in the source text. Also include promotional text or keywords.
-            - **PublishingDetail:**
-                - **Publisher:** Full publisher name.
-                - **PublishingDate:** Date of publication.
-            - **ProductSupply:**
-                - **SupplyDetail:** Include supplier information and at least one price (e.g., US Dollar).
-
-        2.  **MARC21:** Create a human-readable text representation of a MARC21 record, ready for library systems. Each field must be on a new line, formatted precisely with the MARC tag, indicators, and subfield codes (e.g., \`100 1# $a Smith, John.\`). Include all essential fields:
-            - **Leader:** A placeholder is acceptable if you cannot generate a valid one.
-            - **008:** Fixed-Length Data Elements (Date of publication, language, etc.).
-            - **020:** ISBN ($a).
-            - **022:** ISSN ($a).
-            - **082:** Dewey Decimal Classification (if it can be inferred).
-            - **100:** Main Entry - Personal Name ($a Author Name, $d dates if available).
-            - **245:** Title Statement ($a Title : $b subtitle / $c statement of responsibility).
-            - **264:** Production, Publication, Distribution (use indicator 2 for publisher, include $a Place, $b Publisher Name, $c Date).
-            - **300:** Physical Description ($a number of pages : $b other physical details ; $c dimensions).
-            - **505:** Formatted Contents Note (Table of Contents).
-            - **520:** Summary Note (A full, detailed summary or abstract).
-            - **650:** Subject Added Entry - Topical Term ($a Topic -- $z Geographic subdivision). Generate multiple relevant subjects based on the content, including keywords and taxonomy.
-            - **655:** Index Term - Genre/Form ($a Genre).
-            - **773:** Host Item Entry (For journal articles, to contain journal title, Volume, Issue, and date information. e.g., $t Journal Title $g Vol. 12, Iss. 3 (2024)).
-
-        Extract this information meticulously from the following document text.
-
-        DOCUMENT TEXT:
-        ${fullText}
-    `;
-
-    try {
-        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: BOOK_METADATA_SCHEMA,
-            },
-        }));
-        // FIX: Added a check for an empty or undefined response.text to prevent crashes.
-        const jsonText = response.text?.trim();
-        if (!jsonText) {
-            throw new Error("API returned empty response for book metadata extraction.");
-        }
-        const parsedJson = JSON.parse(jsonText);
-        if (typeof parsedJson.onix !== 'string' || typeof parsedJson.marc !== 'string') {
-            throw new Error("API response did not contain the expected 'onix' and 'marc' string properties.");
-        }
-        return parsedJson;
-    } catch (error) {
-        console.error("Error calling AI service for book metadata extraction:", error);
-        throw new Error("Failed to extract book metadata with the AI service.");
-    }
+    const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: BOOK_METADATA_EXTRACTION_SCHEMA,
+        },
+    }));
+    const jsonText = response.text?.replace(/```json|```/g, '').trim();
+    if (!jsonText) throw new Error("No metadata generated");
+    return JSON.parse(jsonText);
 }
