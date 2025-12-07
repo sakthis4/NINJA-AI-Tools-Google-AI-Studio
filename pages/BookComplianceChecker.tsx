@@ -5,14 +5,14 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, InfoIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, InfoIcon, BookOpenIcon, PhotographIcon, PencilIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { performComplianceCheck, analyzeBookStructure, analyzeReadability } from '../services/aiService';
+import { performComplianceCheck, analyzeBookStructure, analyzeReadability, validateBookMetadata, analyzeBookVisuals, analyzeBookEditorial } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority, ReadabilityIssue
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, BookStructuralIssue, ManuscriptIssuePriority, ReadabilityIssue, BookMetadataIssue, VisualAssetIssue, BookEditorialIssue
 } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
@@ -50,18 +50,36 @@ async function extractTextFromFile(file: File): Promise<string> {
     }
 }
 
-const renderStatusIcon = (status: FindingStatus) => {
-    const styles = { pass: 'text-green-400 bg-green-900/50 border-green-500/50', warn: 'text-yellow-400 bg-yellow-900/50 border-yellow-500/50', fail: 'text-red-400 bg-red-900/50 border-red-500/50' };
-    const Icon = { pass: CheckIcon, warn: ExclamationIcon, fail: XIcon }[status];
-    return <div className={`p-2 rounded-full border ${styles[status]}`}><Icon className="h-6 w-6" /></div>;
+const renderStatusIcon = (status: FindingStatus | 'Pass' | 'Fail' | 'Warning' | 'Info') => {
+    // Map FindingStatus and new status strings to color classes
+    const safeStatus = status.toLowerCase();
+    const styles = { 
+        pass: 'text-green-400 bg-green-900/50 border-green-500/50', 
+        fail: 'text-red-400 bg-red-900/50 border-red-500/50', 
+        warn: 'text-yellow-400 bg-yellow-900/50 border-yellow-500/50',
+        warning: 'text-yellow-400 bg-yellow-900/50 border-yellow-500/50',
+        info: 'text-blue-400 bg-blue-900/50 border-blue-500/50'
+    };
+    const Icon = { 
+        pass: CheckIcon, 
+        fail: XIcon, 
+        warn: ExclamationIcon, 
+        warning: ExclamationIcon, 
+        info: InfoIcon 
+    }[safeStatus] || InfoIcon;
+
+    const styleClass = styles[safeStatus as keyof typeof styles] || styles.info;
+
+    return <div className={`p-2 rounded-full border ${styleClass}`}><Icon className="h-6 w-6" /></div>;
 };
 
-const renderPriorityVisuals = (priority: ManuscriptIssuePriority) => {
+const renderPriorityVisuals = (priority: ManuscriptIssuePriority | string) => {
     const styles = { High: 'text-red-400 bg-red-900/50 border-red-500/50', Medium: 'text-yellow-400 bg-yellow-900/50 border-yellow-500/50', Low: 'text-sky-400 bg-sky-900/50 border-sky-500/50' };
-    const Icon = { High: ExclamationIcon, Medium: ExclamationIcon, Low: InfoIcon }[priority];
+    const Icon = { High: ExclamationIcon, Medium: ExclamationIcon, Low: InfoIcon }[priority as keyof typeof styles] || InfoIcon;
+    const styleClass = styles[priority as keyof typeof styles] || styles.Low;
     return {
-        icon: <div className={`p-2 rounded-full border ${styles[priority]}`}><Icon className="h-6 w-6" /></div>,
-        tag: <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${styles[priority].replace('text-', 'bg-').replace('/50', '/30').replace('border-red-500/50', '')}`}>{priority}</span>
+        icon: <div className={`p-2 rounded-full border ${styleClass}`}><Icon className="h-6 w-6" /></div>,
+        tag: <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${styleClass.replace('text-', 'bg-').replace('/50', '/30').replace('border-red-500/50', '')}`}>{priority}</span>
     };
 };
 
@@ -77,7 +95,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const ruleFiles = currentUserData?.ruleFiles || {};
     const folders = currentUserData?.bookComplianceFolders || [];
     
-    const [activeTab, setActiveTab] = useState<'profiles' | 'projects'>('profiles');
+    const [activeTab, setActiveTab] = useState<'profiles' | 'projects'>('projects');
     const [processingQueue, setProcessingQueue] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -89,7 +107,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
-    const [reportTab, setReportTab] = useState<'compliance' | 'structure' | 'readability'>('compliance');
+    const [reportTab, setReportTab] = useState<'compliance' | 'structure' | 'readability' | 'metadata' | 'visuals' | 'editorial'>('compliance');
     
     const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
@@ -170,7 +188,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
                 
-                const totalSteps = textChunks.length + 2; // chunks + structural + readability
+                const totalSteps = textChunks.length + 5; // chunks + structural + readability + metadata + visuals + editorial
 
                 let allFindings: ComplianceFinding[] = [];
                 for (const [index, chunk] of textChunks.entries()) {
@@ -186,7 +204,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     if (index < textChunks.length - 1) await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
                 }
                 
-                updateBookComplianceManuscript(manuscriptId, { progress: Math.round((textChunks.length / totalSteps) * 100) });
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 1) / totalSteps) * 100) });
                 addComplianceLog(manuscriptId, `Compliance check finished. Found ${allFindings.length} items. Starting structural analysis...`);
                 let structuralIssues: BookStructuralIssue[] = [];
                 try {
@@ -196,7 +214,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     addComplianceLog(manuscriptId, `ERROR during structural analysis: ${analysisError instanceof Error ? analysisError.message : "Unknown"}`);
                 }
 
-                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 1) / totalSteps) * 100) });
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 2) / totalSteps) * 100) });
                 addComplianceLog(manuscriptId, `Structural analysis finished. Starting readability analysis...`);
                 let readabilityIssues: ReadabilityIssue[] = [];
                 try {
@@ -204,6 +222,36 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     addComplianceLog(manuscriptId, `Readability analysis finished. Found ${readabilityIssues.length} items.`);
                 } catch (readabilityError) {
                     addComplianceLog(manuscriptId, `ERROR during readability analysis: ${readabilityError instanceof Error ? readabilityError.message : "Unknown"}`);
+                }
+
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 3) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Readability analysis finished. Starting metadata & TOC validation...`);
+                let metadataIssues: BookMetadataIssue[] = [];
+                try {
+                    metadataIssues = await validateBookMetadata(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Metadata validation finished. Found ${metadataIssues.length} items.`);
+                } catch (metaError) {
+                    addComplianceLog(manuscriptId, `ERROR during metadata validation: ${metaError instanceof Error ? metaError.message : "Unknown"}`);
+                }
+
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 4) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Metadata validation finished. Starting visual asset analysis...`);
+                let visualIssues: VisualAssetIssue[] = [];
+                try {
+                    visualIssues = await analyzeBookVisuals(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Visual asset analysis finished. Found ${visualIssues.length} items.`);
+                } catch (visualError) {
+                    addComplianceLog(manuscriptId, `ERROR during visual analysis: ${visualError instanceof Error ? visualError.message : "Unknown"}`);
+                }
+
+                updateBookComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 5) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Visual analysis finished. Starting editorial check...`);
+                let editorialIssues: BookEditorialIssue[] = [];
+                try {
+                    editorialIssues = await analyzeBookEditorial(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Editorial check finished. Found ${editorialIssues.length} items.`);
+                } catch (edError) {
+                    addComplianceLog(manuscriptId, `ERROR during editorial check: ${edError instanceof Error ? edError.message : "Unknown"}`);
                 }
 
                 addUsageLog({ 
@@ -217,7 +265,10 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                     status: 'completed', 
                     complianceReport: allFindings, 
                     structuralReport: structuralIssues, 
-                    readabilityReport: readabilityIssues,
+                    readabilityReport: readabilityIssues, 
+                    bookMetadataReport: metadataIssues,
+                    visualAssetReport: visualIssues,
+                    bookEditorialReport: editorialIssues,
                     progress: 100 
                 });
             } catch (error) {
@@ -231,30 +282,79 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         processNextInQueue();
     }, [processingQueue, isProcessing, folders, profiles, ruleFiles, addUsageLog, currentUser, addComplianceLog, updateBookComplianceManuscript, selectedModel]);
 
-    const handleDownloadLog = (manuscript: ManuscriptFile) => {
-        const fileName = `${manuscript.name}.log.txt`;
-        let content = `BOOK COMPLIANCE LOG\nFile: ${manuscript.name}\nStatus: ${manuscript.status}\n\nPROCESS LOG:\n${(manuscript.logs || []).join('\n')}\n\n---\n\nCOMPLIANCE REPORT:\n\n`;
-        (manuscript.complianceReport || []).forEach(f => {
-            content += `[${f.status.toUpperCase()}] ${f.checkCategory}\n- Summary: ${f.summary}\n- Manuscript (p. ${f.manuscriptPage}): "${f.manuscriptQuote}"\n- Rule (p. ${f.rulePage}): "${f.ruleContent}"\n- Recommendation: ${f.recommendation}\n\n`;
-        });
+    const escapeCsvField = (field: any): string => {
+        const stringField = String(field ?? '');
+        if (/[",\n]/.test(stringField)) {
+            return `"${stringField.replace(/"/g, '""')}"`;
+        }
+        return stringField;
+    };
 
+    const handleDownloadReport = (manuscript: ManuscriptFile) => {
+        const fileName = `${manuscript.name}_report.csv`;
+        let csvContent = `File Name,${escapeCsvField(manuscript.name)}\nStatus,${escapeCsvField(manuscript.status)}\n\n`;
+
+        // Compliance
+        if (manuscript.complianceReport && manuscript.complianceReport.length > 0) {
+            csvContent += '## COMPLIANCE REPORT ##\n';
+            csvContent += 'Status,Category,Summary,Manuscript Quote,Manuscript Page,Rule Content,Rule Page,Recommendation\n';
+            manuscript.complianceReport.forEach(f => {
+                csvContent += [f.status, f.checkCategory, f.summary, f.manuscriptQuote, f.manuscriptPage, f.ruleContent, f.rulePage, f.recommendation].map(escapeCsvField).join(',') + '\n';
+            });
+            csvContent += '\n';
+        }
+
+        // Structural
         if (manuscript.structuralReport && manuscript.structuralReport.length > 0) {
-            content += `\n---\n\nSTRUCTURAL ANALYSIS REPORT:\n\n`;
+            csvContent += '## STRUCTURAL ANALYSIS REPORT ##\n';
+            csvContent += 'Priority,Category,Location,Summary,Details,Recommendation\n';
             manuscript.structuralReport.forEach(f => {
-                content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n- Recommendation: ${f.recommendation}\n\n`;
+                csvContent += [f.priority, f.issueCategory, f.location, f.summary, f.details, f.recommendation].map(escapeCsvField).join(',') + '\n';
             });
+            csvContent += '\n';
         }
 
+        // Readability
         if (manuscript.readabilityReport && manuscript.readabilityReport.length > 0) {
-            content += `\n---\n\nREADABILITY ANALYSIS REPORT:\n\n`;
+            csvContent += '## READABILITY ANALYSIS REPORT ##\n';
+            csvContent += 'Priority,Category,Location,Summary,Details,Quote,Recommendation\n';
             manuscript.readabilityReport.forEach(f => {
-                content += `[${f.priority.toUpperCase()}] ${f.issueCategory} at ${f.location}\n- Summary: ${f.summary}\n- Details: ${f.details}\n`;
-                if (f.quote) content += `- Quote: "${f.quote}"\n`;
-                content += `- Recommendation: ${f.recommendation}\n\n`;
+                csvContent += [f.priority, f.issueCategory, f.location, f.summary, f.details, f.quote, f.recommendation].map(escapeCsvField).join(',') + '\n';
             });
+            csvContent += '\n';
         }
 
-        const blob = new Blob([content], { type: 'text/plain' });
+        // Metadata
+        if (manuscript.bookMetadataReport && manuscript.bookMetadataReport.length > 0) {
+            csvContent += '## METADATA & TOC VALIDATION REPORT ##\n';
+            csvContent += 'Status,Category,Summary,Details,Recommendation\n';
+            manuscript.bookMetadataReport.forEach(f => {
+                csvContent += [f.status, f.category, f.summary, f.details, f.recommendation].map(escapeCsvField).join(',') + '\n';
+            });
+            csvContent += '\n';
+        }
+
+        // Visuals
+        if (manuscript.visualAssetReport && manuscript.visualAssetReport.length > 0) {
+            csvContent += '## VISUAL ASSET VALIDATION REPORT ##\n';
+            csvContent += 'Status,Category,Location,Description,Recommendation\n';
+            manuscript.visualAssetReport.forEach(f => {
+                csvContent += [f.status, f.category, f.location, f.description, f.recommendation].map(escapeCsvField).join(',') + '\n';
+            });
+            csvContent += '\n';
+        }
+
+        // Editorial
+        if (manuscript.bookEditorialReport && manuscript.bookEditorialReport.length > 0) {
+            csvContent += '## COMPREHENSIVE EDITORIAL CHECK ##\n';
+            csvContent += 'Severity,Category,Location,Quote,Suggestion\n';
+            manuscript.bookEditorialReport.forEach(f => {
+                csvContent += [f.severity, f.category, f.location, f.quote, f.suggestion].map(escapeCsvField).join(',') + '\n';
+            });
+            csvContent += '\n';
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = fileName;
@@ -262,7 +362,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
-        setStatusBarMessage(`Downloading log for ${manuscript.name}`, 'info');
+        setStatusBarMessage(`Downloading report for ${manuscript.name}`, 'success');
     };
 
     return (
@@ -277,13 +377,14 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                         </div>
                         {isHeaderExpanded && (
                             <div className="animate-fade-in origin-top">
-                                <p className="text-sm text-slate-500 mt-1">Validate manuscripts against guidelines and analyze chapter-level structure and readability.</p>
+                                <p className="text-sm text-slate-500 mt-1">Validate manuscripts against guidelines and analyze chapter-level structure, readability, visuals, and editorial quality.</p>
                                 <ul className="list-disc list-inside text-sm text-slate-500 mt-2 space-y-1">
                                     <li>Compare book manuscripts against custom rule profiles.</li>
                                     <li>Analyze chapter structure, sequence, and formatting consistency.</li>
-                                    <li>Detect missing chapters and word count anomalies.</li>
                                     <li>Score chapter-by-chapter readability and check tone consistency.</li>
-                                    <li>Flag unclear language and excessive passive voice with rewrite suggestions.</li>
+                                    <li><strong>Metadata & TOC Validation:</strong> Cross-check TOC against chapter headers and validate front matter.</li>
+                                    <li><strong>Full Visual Asset Validation:</strong> Check figure/table numbering, caption styles, text references, placeholders, and suggest alt-text.</li>
+                                    <li><strong>Comprehensive Editorial Check:</strong> Detect grammar errors, unclear sentence meanings, and repeated words.</li>
                                 </ul>
                             </div>
                         )}
@@ -291,9 +392,9 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 </div>
             </div>
             
-            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
-                <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
-                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'projects' ? 'border-b-2 border-yellow-500 text-yellow-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
+            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6 overflow-x-auto">
+                <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'profiles' ? 'border-b-2 border-sky-500 text-sky-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Profiles & Rules</button>
+                <button onClick={() => setActiveTab('projects')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'projects' ? 'border-b-2 border-yellow-500 text-yellow-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Projects & Manuscripts</button>
             </div>
             
             <div className="flex-grow overflow-y-auto">
@@ -328,7 +429,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                                 <p className="mt-1 text-sm text-slate-500">Create a project folder to upload and check book manuscripts.</p>
                             </div>
                          ) : (
-                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteBookComplianceFolder} onMapProfile={(profId) => updateBookComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteBookComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setReportTab('compliance'); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadLog={handleDownloadLog} />)
+                            folders.map(f => <FolderCard key={f.id} folder={f} profiles={profiles} onExpandToggle={(id) => setExpandedSections(prev => ({...prev, [id]: !prev[id]}))} isExpanded={!!expandedSections[f.id]} onDelete={deleteBookComplianceFolder} onMapProfile={(profId) => updateBookComplianceFolderProfile(f.id, profId)} onManuscriptDelete={(manId) => deleteBookComplianceManuscript(f.id, manId)} onDrop={(files) => onManuscriptsDrop(files, f.id)} onViewReport={(man) => {setSelectedManuscript(man); setReportTab('compliance'); setModal('viewReport');}} onViewLogs={(man) => {setSelectedManuscript(man); setModal('viewLogs');}} onDownloadReport={handleDownloadReport} />)
                          )}
                     </section>
                 )}
@@ -351,15 +452,24 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 </form>
             </Modal>
             <Modal isOpen={modal === 'viewReport' && !!selectedManuscript} onClose={() => setModal(null)} title={`Report: ${selectedManuscript?.name}`} size="2xl">
-                <div className="flex border-b border-slate-700 mb-4">
-                    <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'compliance' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>
+                <div className="flex border-b border-slate-700 mb-4 overflow-x-auto">
+                    <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'compliance' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>
                         Compliance ({selectedManuscript?.complianceReport?.length || 0})
                     </button>
-                    <button onClick={() => setReportTab('structure')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'structure' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>
+                    <button onClick={() => setReportTab('structure')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'structure' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>
                         Structure ({selectedManuscript?.structuralReport?.length || 0})
                     </button>
-                     <button onClick={() => setReportTab('readability')} className={`px-4 py-2 text-sm font-medium transition-colors ${reportTab === 'readability' ? 'border-b-2 border-indigo-500 text-indigo-400' : 'text-slate-400 hover:text-white'}`}>
+                     <button onClick={() => setReportTab('readability')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'readability' ? 'border-b-2 border-indigo-500 text-indigo-400' : 'text-slate-400 hover:text-white'}`}>
                         Readability ({selectedManuscript?.readabilityReport?.length || 0})
+                    </button>
+                    <button onClick={() => setReportTab('metadata')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'metadata' ? 'border-b-2 border-pink-500 text-pink-400' : 'text-slate-400 hover:text-white'}`}>
+                        Metadata ({selectedManuscript?.bookMetadataReport?.length || 0})
+                    </button>
+                    <button onClick={() => setReportTab('visuals')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'visuals' ? 'border-b-2 border-blue-500 text-blue-400' : 'text-slate-400 hover:text-white'}`}>
+                        Visuals ({selectedManuscript?.visualAssetReport?.length || 0})
+                    </button>
+                    <button onClick={() => setReportTab('editorial')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'editorial' ? 'border-b-2 border-orange-500 text-orange-400' : 'text-slate-400 hover:text-white'}`}>
+                        Editorial ({selectedManuscript?.bookEditorialReport?.length || 0})
                     </button>
                 </div>
 
@@ -426,7 +536,73 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                         ))}
                     </div>
                 )}
-                <div className="text-center pt-4 border-t border-slate-700 mt-4"><button onClick={() => selectedManuscript && handleDownloadLog(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Log</button></div>
+                {reportTab === 'metadata' && (
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.bookMetadataReport || []).length === 0 && <p className="text-center text-slate-500">No metadata discrepancies found.</p>}
+                        {selectedManuscript?.bookMetadataReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h4 className="font-semibold text-lg text-slate-200">{finding.category}</h4>
+                                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${
+                                        finding.status === 'Pass' ? 'bg-green-900/50 text-green-400 border-green-500/50' : 
+                                        finding.status === 'Fail' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 
+                                        'bg-yellow-900/50 text-yellow-400 border-yellow-500/50'
+                                    }`}>
+                                        {finding.status.toUpperCase()}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-slate-400 italic mb-4">"{finding.summary}"</p>
+                                <div className="space-y-3 text-sm">
+                                    <p><strong className="font-medium text-pink-400">Details:</strong> <span className="text-slate-300">{finding.details}</span></p>
+                                    {finding.status !== 'Pass' && <p><strong className="font-medium text-pink-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {reportTab === 'visuals' && (
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.visualAssetReport || []).length === 0 && <p className="text-center text-slate-500">No visual asset issues found.</p>}
+                        {selectedManuscript?.visualAssetReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <PhotographIcon className="h-5 w-5 text-blue-400"/>
+                                        <h4 className="font-semibold text-lg text-slate-200">{finding.category}</h4>
+                                    </div>
+                                    {renderStatusIcon(finding.status)}
+                                </div>
+                                <div className="mt-3 space-y-2 text-sm">
+                                    <p><strong className="font-medium text-blue-400">Location:</strong> <span className="text-slate-300">{finding.location}</span></p>
+                                    <p><strong className="font-medium text-blue-400">Description:</strong> <span className="text-slate-300">{finding.description}</span></p>
+                                    <p><strong className="font-medium text-blue-400">Recommendation:</strong> <span className="text-slate-300">{finding.recommendation}</span></p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {reportTab === 'editorial' && (
+                    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
+                        {(selectedManuscript?.bookEditorialReport || []).length === 0 && <p className="text-center text-slate-500">No editorial issues found.</p>}
+                        {selectedManuscript?.bookEditorialReport?.map((finding, index) => (
+                            <div key={index} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <PencilIcon className="h-5 w-5 text-orange-400"/>
+                                        <h4 className="font-semibold text-lg text-slate-200">{finding.category}</h4>
+                                    </div>
+                                    {renderPriorityVisuals(finding.severity).tag}
+                                </div>
+                                <div className="space-y-3 text-sm mt-3">
+                                    <p><strong className="font-medium text-orange-400">Location:</strong> <span className="text-slate-300">{finding.location}</span></p>
+                                    <div className="bg-slate-950 p-3 rounded border-l-2 border-orange-500/50 italic text-slate-400">"{finding.quote}"</div>
+                                    <p><strong className="font-medium text-orange-400">Suggestion:</strong> <span className="text-slate-300">{finding.suggestion}</span></p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <div className="text-center pt-4 border-t border-slate-700 mt-4"><button onClick={() => selectedManuscript && handleDownloadReport(selectedManuscript)} className="text-sm text-slate-400 hover:underline">Download Full Report (CSV)</button></div>
             </Modal>
              <Modal isOpen={modal === 'viewLogs' && !!selectedManuscript} onClose={() => setModal(null)} title={`Logs: ${selectedManuscript?.name}`}>
                 <div className="bg-slate-900 text-white font-mono text-xs rounded-md p-4 max-h-96 overflow-y-auto">
@@ -437,6 +613,7 @@ const BookComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     );
 };
 
+// ... (ProfileCard, ManuscriptRow, FolderCard, export default BookComplianceChecker)
 const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<string, RuleFile>; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onRuleDelete: (ruleId: string) => void; onDrop: (files: File[]) => void; }> = ({ profile, ruleFiles, isExpanded, onExpandToggle, onDelete, onRuleDelete, onDrop }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
@@ -464,7 +641,7 @@ const ProfileCard: React.FC<{ profile: ComplianceProfile; ruleFiles: Record<stri
     );
 };
 
-const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadLog }) => (
+const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onManuscriptDelete: (id: string) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ manuscript, onViewReport, onViewLogs, onManuscriptDelete, onDownloadReport }) => (
     <div className="bg-slate-100 dark:bg-slate-700/50 p-3 rounded-md">
         <div className="flex justify-between items-center gap-4">
             <div className="flex-1 min-w-0">
@@ -477,7 +654,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
                 {manuscript.status === 'completed' && (
                     <>
                         <button onClick={() => onViewReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-yellow-700 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/50 rounded-md hover:bg-yellow-200 dark:hover:bg-yellow-900">View Report</button>
-                        <button onClick={() => onDownloadLog(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
+                        <button onClick={() => onDownloadReport(manuscript)} className="px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 inline-flex items-center"><DownloadIcon className="h-3 w-3 mr-1.5"/>Download</button>
                     </>
                 )}
                 <button onClick={() => onViewLogs(manuscript)} title="View Logs" className="p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full"><ClipboardListIcon className="h-4 w-4"/></button>
@@ -489,7 +666,7 @@ const ManuscriptRow: React.FC<{ manuscript: ManuscriptFile; onViewReport: (m: Ma
 );
 
 
-const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadLog: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadLog }) => {
+const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: ComplianceProfile[]; isExpanded: boolean; onExpandToggle: (id: string) => void; onDelete: (id: string) => void; onMapProfile: (profId: string | null) => void; onManuscriptDelete: (id: string) => void; onDrop: (files: File[]) => void; onViewReport: (m: ManuscriptFile) => void; onViewLogs: (m: ManuscriptFile) => void; onDownloadReport: (m: ManuscriptFile) => void; }> = ({ folder, profiles, isExpanded, onExpandToggle, onDelete, onMapProfile, onManuscriptDelete, onDrop, onViewReport, onViewLogs, onDownloadReport }) => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop, accept: { 'application/pdf': ['.pdf'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } });
     return (
          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md transition-all duration-300">
@@ -498,7 +675,7 @@ const FolderCard: React.FC<{ folder: ComplianceProjectFolder; profiles: Complian
                 <div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); onDelete(folder.id)}} className="p-2 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="h-5 w-5"/></button><ChevronDownIcon className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/></div>
             </button>
             {isExpanded && <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadLog={onDownloadLog} />)}</div>
+                <div className="space-y-2">{folder.manuscripts.map(m => <ManuscriptRow key={m.id} manuscript={m} onViewReport={onViewReport} onViewLogs={onViewLogs} onManuscriptDelete={onManuscriptDelete} onDownloadReport={onDownloadReport} />)}</div>
                 <div {...getRootProps()} className="mt-4 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 text-slate-500 hover:text-yellow-600 dark:hover:text-yellow-400 transition-colors">
                     <input {...getInputProps()} />
                     <UploadIcon className="h-8 w-8 mx-auto" />

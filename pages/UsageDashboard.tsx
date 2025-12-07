@@ -91,8 +91,9 @@ export default function UsageDashboard() {
                     csvContent += '## SCORING REPORT ##\n';
                     csvContent += 'Metric,Score,Reasoning\n';
                     for (const [key, value] of Object.entries(manuscript.scores)) {
+                        const val = value as { score: number; reasoning: string };
                         const scoreName = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
-                        csvContent += [scoreName, value.score, value.reasoning].map(escapeCsvField).join(',') + '\n';
+                        csvContent += [scoreName, val.score, val.reasoning].map(escapeCsvField).join(',') + '\n';
                     }
                     csvContent += '\n';
                 }

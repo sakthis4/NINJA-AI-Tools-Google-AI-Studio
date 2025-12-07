@@ -125,6 +125,32 @@ export interface ReadabilityIssue {
     recommendation: string;
 }
 
+// New interface for Book Metadata & TOC Validation
+export interface BookMetadataIssue {
+    category: 'TOC Mismatch' | 'Chapter Numbering' | 'Metadata Validation' | 'Front Matter Discrepancy';
+    status: 'Pass' | 'Fail' | 'Warning';
+    summary: string;
+    details: string;
+    recommendation: string;
+}
+
+// New interfaces for Book Visuals and Editorial
+export interface VisualAssetIssue {
+    category: 'Numbering' | 'Caption Style' | 'Broken Reference' | 'Placeholder' | 'Resolution' | 'Accessibility';
+    status: 'Pass' | 'Fail' | 'Warning' | 'Info';
+    description: string;
+    location: string;
+    recommendation: string;
+}
+
+export interface BookEditorialIssue {
+    category: 'Grammar' | 'Unclear Meaning' | 'Repetition';
+    severity: 'High' | 'Medium' | 'Low';
+    quote: string;
+    location: string; // e.g. Chapter 1
+    suggestion: string;
+}
+
 export interface JournalRecommendation {
     journalName: string;
     publisher: string;
@@ -235,6 +261,9 @@ export interface ManuscriptFile {
   analysisReport?: ManuscriptIssue[];
   structuralReport?: BookStructuralIssue[];
   readabilityReport?: ReadabilityIssue[];
+  bookMetadataReport?: BookMetadataIssue[];
+  visualAssetReport?: VisualAssetIssue[];
+  bookEditorialReport?: BookEditorialIssue[];
   journalRecommendations?: JournalRecommendation[];
   scores?: ManuscriptScores;
   metadataAnalysisReport?: MetadataAnalysisReport;

@@ -69,11 +69,12 @@ const ScoringDashboard: React.FC<ScoringDashboardProps> = ({ scores }) => {
             </div>
             <div className="mt-6 space-y-4">
                 {Object.entries(scores).map(([key, value]) => {
+                    const val = value as { score: number; reasoning: string };
                     const formattedLabel = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
                     return (
                         <div key={key} className="p-3 bg-slate-800/50 rounded-md">
-                            <p className="font-semibold text-slate-200">{formattedLabel}: <span className="text-white">{value.score}</span></p>
-                            <p className="text-sm text-slate-400 mt-1">{value.reasoning}</p>
+                            <p className="font-semibold text-slate-200">{formattedLabel}: <span className="text-white">{val.score}</span></p>
+                            <p className="text-sm text-slate-400 mt-1">{val.reasoning}</p>
                         </div>
                     );
                 })}

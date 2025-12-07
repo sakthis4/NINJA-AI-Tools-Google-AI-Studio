@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation, EditorialReport, IntegrityIssue } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation, EditorialReport, IntegrityIssue, BookMetadataIssue, VisualAssetIssue, BookEditorialIssue } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -346,6 +346,51 @@ const INTEGRITY_CHECK_SCHEMA = {
             recommendation: { type: Type.STRING, description: "Actionable advice if the check failed or has a warning." }
         },
         required: ['category', 'status', 'finding', 'snippet', 'recommendation']
+    }
+};
+
+const BOOK_METADATA_VALIDATION_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING, enum: ['TOC Mismatch', 'Chapter Numbering', 'Metadata Validation', 'Front Matter Discrepancy'], description: "The specific area being validated." },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning'], description: "The result of the validation." },
+            summary: { type: Type.STRING, description: "A concise summary of the finding." },
+            details: { type: Type.STRING, description: "Detailed explanation of the discrepancy or validation result." },
+            recommendation: { type: Type.STRING, description: "Actionable advice to resolve the issue." }
+        },
+        required: ['category', 'status', 'summary', 'details', 'recommendation']
+    }
+};
+
+const VISUAL_ASSET_ANALYSIS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING, enum: ['Numbering', 'Caption Style', 'Broken Reference', 'Placeholder', 'Resolution', 'Accessibility'], description: "The specific visual asset issue category." },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'Info'], description: "The status of the check." },
+            description: { type: Type.STRING, description: "A description of the finding." },
+            location: { type: Type.STRING, description: "Location in the text (e.g. Chapter 2, Figure 2.1)." },
+            recommendation: { type: Type.STRING, description: "Actionable recommendation (e.g. suggested alt-text)." }
+        },
+        required: ['category', 'status', 'description', 'location', 'recommendation']
+    }
+};
+
+const BOOK_EDITORIAL_ANALYSIS_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING, enum: ['Grammar', 'Unclear Meaning', 'Repetition'], description: "The type of editorial issue." },
+            severity: { type: Type.STRING, enum: ['High', 'Medium', 'Low'], description: "Severity of the issue." },
+            quote: { type: Type.STRING, description: "The problematic text snippet." },
+            location: { type: Type.STRING, description: "Location in the manuscript." },
+            suggestion: { type: Type.STRING, description: "Suggested correction or rewrite." }
+        },
+        required: ['category', 'severity', 'quote', 'location', 'suggestion']
     }
 };
 
@@ -761,6 +806,137 @@ export async function analyzeReadability(manuscriptText: string, modelName: stri
     } catch (error) {
         console.error("Error calling AI service for readability analysis:", error);
         throw new Error("Failed to perform readability analysis with the AI service.");
+    }
+}
+
+export async function validateBookMetadata(manuscriptText: string, modelName: string): Promise<BookMetadataIssue[]> {
+    const prompt = `
+        You are an expert production editor and metadata specialist for book publishing. Your task is to perform a detailed verification of the metadata, Table of Contents (TOC), and front matter of the provided book manuscript. Check for consistency, completeness, and accuracy.
+
+        Perform the following checks and report every finding according to the provided JSON schema.
+
+        **1. Table of Contents (TOC) Verification:**
+        - Identify the Table of Contents section.
+        - Compare the chapters and sections listed in the TOC against the actual chapter headers found throughout the body of the manuscript.
+        - **Fail** if there are missing chapters in the TOC or extra chapters in the body.
+        - **Warning** if title wording differs slightly between TOC and body.
+        - **Pass** if they match perfectly.
+
+        **2. Chapter Numbering Check:**
+        - Verify that the sequence of chapter numbers in the TOC is logical (e.g., 1, 2, 3...).
+        - Verify that the sequence of chapter numbers in the body is logical and matches the TOC.
+        - Flag any gaps, duplicates, or non-sequential numbering as a 'Fail'.
+
+        **3. Metadata Validation (Front Matter):**
+        - Scan the front matter (Title Page, Copyright Page, Preface, etc.) for key metadata:
+            - **Author Bios:** Are they present? Do they match the author names on the title page?
+            - **ISBN:** Is a valid ISBN-13 present on the copyright page? (Check format only, e.g., 978-...).
+            - **Edition Statement:** Is the edition clearly stated (e.g., First Edition, 2nd Edition)?
+        - Report missing mandatory items (ISBN, Bios) as 'Fail' or 'Warning'.
+
+        **4. Front Matter Discrepancy Check:**
+        - Compare the Title Page metadata (Book Title, Subtitle, Author Names) against:
+            - The headers/footers (if detectable).
+            - The Copyright Page information.
+            - The TOC header.
+        - Flag any spelling differences or inconsistencies in names or titles as a 'Fail'.
+
+        **Reporting Guidelines:**
+        - For each of the 4 categories above, provide at least one finding (Pass, Fail, or Warning).
+        - Be specific in the 'details' field (e.g., "Chapter 4 is listed in TOC but header in text says Chapter 5").
+        - Provide a 'recommendation' for fixing any issues.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 50000)} // Limit context to ensure front matter and TOC are covered along with a good portion of chapters
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: BOOK_METADATA_VALIDATION_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("API returned empty response for book metadata validation.");
+        const result = JSON.parse(jsonText);
+        if (!Array.isArray(result)) throw new Error("API returned invalid format for book metadata validation.");
+        return result;
+    } catch (error) {
+        console.error("Error calling AI service for book metadata validation:", error);
+        throw new Error("Failed to validate book metadata.");
+    }
+}
+
+export async function analyzeBookVisuals(manuscriptText: string, modelName: string): Promise<VisualAssetIssue[]> {
+    const prompt = `
+        You are a production editor for a technical book publisher. Analyze the provided manuscript for visual asset integrity.
+        
+        Tasks:
+        1. **Numbering:** Check if Figures and Tables are numbered sequentially (e.g. Figure 1.1, 1.2). Flag gaps or duplicates.
+        2. **Captions:** Verify every figure/table has a caption with consistent styling.
+        3. **References:** Check that every figure/table is referenced in the text (e.g., "see Figure 1.1"). Flag "orphaned" figures.
+        4. **Placeholders:** Detect placeholder text like "Insert Figure X here".
+        5. **Resolution Indicators:** Look for text notes like "[low res]" or filenames indicating poor quality.
+        6. **Accessibility:** For 3 key figures found, suggest descriptive Alt Text based on the caption/context.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 40000)}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: VISUAL_ASSET_ANALYSIS_SCHEMA,
+            },
+        }));
+        const jsonText = response.text?.trim();
+        if (!jsonText) return [];
+        const result = JSON.parse(jsonText);
+        return Array.isArray(result) ? result : [];
+    } catch (error) {
+        console.error("Error analyzing book visuals:", error);
+        throw new Error("Failed to analyze book visuals.");
+    }
+}
+
+export async function analyzeBookEditorial(manuscriptText: string, modelName: string): Promise<BookEditorialIssue[]> {
+    const prompt = `
+        You are a professional copyeditor. Perform a granular editorial check on the manuscript.
+        
+        Tasks:
+        1. **Grammar:** Identify clear grammatical errors (subject-verb agreement, etc.).
+        2. **Clarity:** Flag sentences with ambiguous or unclear meanings.
+        3. **Repetition:** Detect unintentional repeated words (e.g., "the the").
+
+        Report findings with locations and suggested fixes.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 30000)}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: BOOK_EDITORIAL_ANALYSIS_SCHEMA,
+            },
+        }));
+        const jsonText = response.text?.trim();
+        if (!jsonText) return [];
+        const result = JSON.parse(jsonText);
+        return Array.isArray(result) ? result : [];
+    } catch (error) {
+        console.error("Error analyzing book editorial:", error);
+        throw new Error("Failed to analyze book editorial.");
     }
 }
 
