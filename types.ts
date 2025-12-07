@@ -186,6 +186,33 @@ export interface PeerReviewSimulation {
     suitabilityForPeerReview: string;
 }
 
+// New interfaces for Editorial Assistant
+export interface EditorialContentImprovement {
+    type: 'Grammar' | 'Clarity' | 'Redundancy' | 'Flow';
+    originalText: string;
+    suggestedText: string;
+    location: string;
+    reason: string;
+}
+
+export interface EditorialReport {
+    titleSuggestions: string[];
+    abstractRewrite: { original: string; rewritten: string; note: string };
+    keywordSuggestions: string[];
+    ethicsStatement: string;
+    citationImprovements: { original: string; suggestion: string }[];
+    contentImprovements: EditorialContentImprovement[];
+}
+
+// New interfaces for Research Integrity
+export interface IntegrityIssue {
+    category: 'Ethics Approval' | 'Consent Statement' | 'Clinical Trial Registration' | 'Conflict of Interest' | 'Author Contribution' | 'Data Integrity';
+    status: 'Pass' | 'Fail' | 'Warning' | 'N/A';
+    finding: string;
+    snippet: string;
+    recommendation: string;
+}
+
 export interface RuleFile {
   id: string;
   name: string;
@@ -212,6 +239,8 @@ export interface ManuscriptFile {
   scores?: ManuscriptScores;
   metadataAnalysisReport?: MetadataAnalysisReport;
   peerReviewSimulation?: PeerReviewSimulation;
+  editorialReport?: EditorialReport;
+  integrityReport?: IntegrityIssue[];
   logs?: string[];
   progress?: number;
 }

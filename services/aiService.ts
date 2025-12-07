@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation } from '../types';
+import { ExtractedAsset, AssetType, ComplianceFinding, ManuscriptIssue, JournalRecommendation, BookStructuralIssue, ReadabilityIssue, ManuscriptScores, MetadataAnalysisReport, PeerReviewSimulation, EditorialReport, IntegrityIssue } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set.");
@@ -286,6 +286,67 @@ const PEER_REVIEW_SIMULATION_SCHEMA = {
         suitabilityForPeerReview: { type: Type.STRING, description: "Assessment of suitability for peer review." }
     },
     required: ['manuscriptSummary', 'strengths', 'weaknesses', 'reviewerConcerns', 'methodologicalGaps', 'reviewerQuestions', 'suitabilityForPeerReview']
+};
+
+const EDITORIAL_REPORT_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        titleSuggestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 improved, SEO-friendly titles." },
+        abstractRewrite: {
+            type: Type.OBJECT,
+            properties: {
+                original: { type: Type.STRING, description: "The original abstract text found." },
+                rewritten: { type: Type.STRING, description: "The rewritten abstract, structured (Background, Methods, Results, Conclusion) and concise (approx 250 words)." },
+                note: { type: Type.STRING, description: "Explanation of what was improved." }
+            },
+            required: ['original', 'rewritten', 'note']
+        },
+        keywordSuggestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5-7 optimized keywords." },
+        ethicsStatement: { type: Type.STRING, description: "A generated standard ethics statement template appropriate for the likely study type." },
+        citationImprovements: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    original: { type: Type.STRING },
+                    suggestion: { type: Type.STRING, description: "Formatted citation example." }
+                },
+                required: ['original', 'suggestion']
+            },
+            description: "Examples of correct formatting for 3-5 references found in the text."
+        },
+        contentImprovements: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    type: { type: Type.STRING, enum: ['Grammar', 'Clarity', 'Redundancy', 'Flow'] },
+                    originalText: { type: Type.STRING },
+                    suggestedText: { type: Type.STRING },
+                    location: { type: Type.STRING, description: "e.g., 'Page 1, Paragraph 2'" },
+                    reason: { type: Type.STRING }
+                },
+                required: ['type', 'originalText', 'suggestedText', 'location', 'reason']
+            },
+            description: "3-5 sentences that are unclear, redundant, or grammatically poor, rewritten."
+        }
+    },
+    required: ['titleSuggestions', 'abstractRewrite', 'keywordSuggestions', 'ethicsStatement', 'citationImprovements', 'contentImprovements']
+};
+
+const INTEGRITY_CHECK_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            category: { type: Type.STRING, enum: ['Ethics Approval', 'Consent Statement', 'Clinical Trial Registration', 'Conflict of Interest', 'Author Contribution', 'Data Integrity'], description: "The specific policy area being checked." },
+            status: { type: Type.STRING, enum: ['Pass', 'Fail', 'Warning', 'N/A'], description: "The result of the check." },
+            finding: { type: Type.STRING, description: "A summary of the finding." },
+            snippet: { type: Type.STRING, description: "Relevant text from the manuscript supporting the finding." },
+            recommendation: { type: Type.STRING, description: "Actionable advice if the check failed or has a warning." }
+        },
+        required: ['category', 'status', 'finding', 'snippet', 'recommendation']
+    }
 };
 
 const BOOK_METADATA_SCHEMA = {
@@ -808,6 +869,90 @@ export async function simulatePeerReview(manuscriptText: string, modelName: stri
     } catch (error) {
         console.error("Error calling AI service for peer review simulation:", error);
         throw new Error("Failed to perform peer review simulation.");
+    }
+}
+
+export async function generateEditorialEnhancements(manuscriptText: string, modelName: string): Promise<EditorialReport> {
+    const prompt = `
+        Act as a professional academic copyeditor and editorial assistant. Analyze the provided manuscript text and generate active improvements and fixes.
+
+        1. **Abstract Makeover:** Identify the abstract. Rewrite it to be structured (Background, Methods, Results, Conclusion) and concise (approx 250 words). Provide the original text for comparison.
+        2. **Title Optimization:** Propose 3 improved, SEO-friendly titles that better capture the study's impact.
+        3. **Keyword Optimization:** Generate 5-7 optimized keywords.
+        4. **Citation Check:** Detect the citation style used. Provide 3-5 examples of citations found in the text and how they *should* be formatted if they were in APA 7 style (as a standard reference).
+        5. **Content Improvements:** Identify 3-5 specific sentences or short paragraphs that are unclear, redundant, or grammatically poor. Rewrite them to improve flow and clarity. State the location and reason.
+        6. **Ethics Statement:** Check if an Ethics Statement exists. If not, generate a standard template statement appropriate for the likely study type (human, animal, or none).
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText.substring(0, 20000)}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: EDITORIAL_REPORT_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("API returned empty response for editorial enhancements.");
+        return JSON.parse(jsonText);
+    } catch (error) {
+        console.error("Error calling AI service for editorial enhancements:", error);
+        throw new Error("Failed to generate editorial enhancements.");
+    }
+}
+
+export async function performIntegrityCheck(manuscriptText: string, modelName: string): Promise<IntegrityIssue[]> {
+    const prompt = `
+        You are a Research Integrity Officer for a prestigious scientific journal. Your task is to audit the provided manuscript for critical policy and integrity issues. This is NOT a plagiarism check, but a deep audit of research ethics and data integrity.
+
+        Analyze the text for the following 6 specific categories:
+
+        1. **Ethics Approval:** Does the study involve human or animal subjects? If so, is there a clear statement of approval from an IRB or Ethics Committee (including protocol numbers if possible)? If not applicable, is that stated?
+        2. **Consent Statement:** If human subjects are involved, is there an explicit statement that informed consent was obtained?
+        3. **Clinical Trial Registration:** If this is a clinical trial, is a registry ID (e.g., NCT number) provided?
+        4. **Conflict of Interest:** Is there a disclosure statement regarding competing interests or funding conflicts?
+        5. **Author Contribution:** Is there a section detailing individual author contributions (e.g., CRediT taxonomy)? If multiple authors exist but no contribution statement is found, flag it.
+        6. **Data Integrity Indicators:** Scan the textual representation of data tables and results. Are there obvious signs of fabrication, such as:
+           - Identical standard deviations across different groups?
+           - Perfect linearity or impossible statistical precision?
+           - Discrepancies between abstract numbers and results section numbers?
+           (Note: You are analyzing text, so focus on logical inconsistencies and textual red flags).
+
+        For EACH category, determine a status:
+        - 'Pass': The requirement is fully met.
+        - 'Fail': The requirement is clearly missing or violated.
+        - 'Warning': The requirement is vague, ambiguous, or potential issues exist.
+        - 'N/A': The category does not apply to this study type (e.g., no human subjects).
+
+        Provide a concise finding, a relevant text snippet (if available), and a recommendation.
+
+        MANUSCRIPT TEXT:
+        ${manuscriptText}
+    `;
+
+    try {
+        const response = await apiCallWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: INTEGRITY_CHECK_SCHEMA,
+            },
+        }));
+        
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("API returned empty response for integrity check.");
+        const result = JSON.parse(jsonText);
+        if(!Array.isArray(result)) throw new Error("API returned invalid format for integrity check.");
+        return result;
+    } catch (error) {
+        console.error("Error calling AI service for integrity check:", error);
+        throw new Error("Failed to perform integrity check.");
     }
 }
 

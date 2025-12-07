@@ -5,14 +5,14 @@ import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
 import {
     ChevronLeftIcon, DownloadIcon, CheckIcon, XIcon, ExclamationIcon, ChevronDownIcon,
-    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, BookOpenIcon, InfoIcon
+    TrashIcon, FolderIcon, PlusCircleIcon, UploadIcon, ClipboardListIcon, ShieldCheckIcon, DocumentTextIcon, BookOpenIcon, InfoIcon, PencilIcon, SparklesIcon, LockClosedIcon
 } from '../components/icons/Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { analyzeManuscript, performComplianceCheck, scoreManuscript, analyzeJournalMetadata, simulatePeerReview } from '../services/aiService';
+import { analyzeManuscript, performComplianceCheck, scoreManuscript, analyzeJournalMetadata, simulatePeerReview, generateEditorialEnhancements, performIntegrityCheck } from '../services/aiService';
 import {
     ComplianceFinding, FindingStatus, ComplianceProfile, RuleFile,
-    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation, ManuscriptIssuePriority, ManuscriptIssue, PeerReviewSimulation
+    ComplianceProjectFolder, ManuscriptFile, ManuscriptStatus, JournalRecommendation, ManuscriptIssuePriority, ManuscriptIssue, PeerReviewSimulation, EditorialReport, IntegrityIssue
 } from '../types';
 import ScoringDashboard from '../components/ScoringDashboard';
 
@@ -90,7 +90,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedProfileForFolder, setSelectedProfileForFolder] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(currentUser?.canUseProModel ? 'gemini-3-pro-preview' : 'gemini-2.5-flash');
-    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring' | 'metadata' | 'peerReview'>('compliance');
+    const [reportTab, setReportTab] = useState<'compliance' | 'analysis' | 'recommendations' | 'scoring' | 'metadata' | 'peerReview' | 'editorial' | 'integrity'>('compliance');
     
     const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
@@ -171,7 +171,7 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 const rulesText = profile.ruleFileIds.map(id => ruleFiles[id]?.textContent).filter(Boolean).join('\n\n---\n\n');
                 if (!rulesText.trim()) throw new Error('No rule documents found or they are empty.');
 
-                const totalSteps = textChunks.length + 4; // Compliance chunks + analysis + scoring + metadata + peer review
+                const totalSteps = textChunks.length + 6; // Compliance chunks + analysis + scoring + metadata + peer review + editorial + integrity
 
                 let allFindings: ComplianceFinding[] = [];
                 let allRecommendations: JournalRecommendation[] = [];
@@ -237,6 +237,28 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                     addComplianceLog(manuscriptId, `ERROR during peer review simulation: ${reviewError instanceof Error ? reviewError.message : "Unknown"}`);
                 }
 
+                updateJournalComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 4) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Peer review simulation finished. Starting editorial assistant...`);
+
+                let editorialReport = null;
+                try {
+                    editorialReport = await generateEditorialEnhancements(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Editorial assistant finished.`);
+                } catch (editError) {
+                    addComplianceLog(manuscriptId, `ERROR during editorial assistant: ${editError instanceof Error ? editError.message : "Unknown"}`);
+                }
+
+                updateJournalComplianceManuscript(manuscriptId, { progress: Math.round(((textChunks.length + 5) / totalSteps) * 100) });
+                addComplianceLog(manuscriptId, `Editorial assistant finished. Starting integrity check...`);
+
+                let integrityReport = null;
+                try {
+                    integrityReport = await performIntegrityCheck(manuscriptText, selectedModel);
+                    addComplianceLog(manuscriptId, `Integrity check finished.`);
+                } catch (intError) {
+                    addComplianceLog(manuscriptId, `ERROR during integrity check: ${intError instanceof Error ? intError.message : "Unknown"}`);
+                }
+
                 addUsageLog({ 
                     userId: currentUser!.id, 
                     toolName: 'Journal Compliance Checker', 
@@ -252,6 +274,8 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                     scores: scores || undefined,
                     metadataAnalysisReport: metadataReport || undefined,
                     peerReviewSimulation: peerReviewSimulation || undefined,
+                    editorialReport: editorialReport || undefined,
+                    integrityReport: integrityReport || undefined,
                     progress: 100 
                 });
             } catch (error) {
@@ -276,6 +300,31 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 const scoreName = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
                 csvContent += [scoreName, value.score, value.reasoning].map(escapeCsvField).join(',') + '\n';
             }
+            csvContent += '\n';
+        }
+
+        if (manuscript.integrityReport) {
+            csvContent += '## RESEARCH INTEGRITY REPORT ##\n';
+            csvContent += 'Category,Status,Finding,Snippet,Recommendation\n';
+            manuscript.integrityReport.forEach(item => {
+                csvContent += [item.category, item.status, item.finding, item.snippet, item.recommendation].map(escapeCsvField).join(',') + '\n';
+            });
+            csvContent += '\n';
+        }
+
+        if (manuscript.editorialReport) {
+            csvContent += '## EDITORIAL ASSISTANT ##\n';
+            csvContent += 'Type,Original Text,Suggested Text,Note/Reason\n';
+            csvContent += `Title,"","",${escapeCsvField(manuscript.editorialReport.titleSuggestions.join('; '))}\n`;
+            csvContent += `Abstract,${escapeCsvField(manuscript.editorialReport.abstractRewrite.original)},${escapeCsvField(manuscript.editorialReport.abstractRewrite.rewritten)},${escapeCsvField(manuscript.editorialReport.abstractRewrite.note)}\n`;
+            csvContent += `Keywords,"","",${escapeCsvField(manuscript.editorialReport.keywordSuggestions.join('; '))}\n`;
+            csvContent += `Ethics,"","",${escapeCsvField(manuscript.editorialReport.ethicsStatement)}\n`;
+            manuscript.editorialReport.citationImprovements.forEach(c => {
+                csvContent += `Citation,${escapeCsvField(c.original)},${escapeCsvField(c.suggestion)},"Formatting Fix"\n`;
+            });
+            manuscript.editorialReport.contentImprovements.forEach(c => {
+                csvContent += `${c.type},${escapeCsvField(c.originalText)},${escapeCsvField(c.suggestedText)},${escapeCsvField(c.reason)} (${c.location})\n`;
+            });
             csvContent += '\n';
         }
 
@@ -374,6 +423,8 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                                     <li>Receive a quantitative scoring report on key manuscript quality metrics.</li>
                                     <li>Get AI-powered journal recommendations based on your manuscript's content.</li>
                                     <li>Mimic peer reviewers with summaries, strengths/weaknesses, and reviewer concerns.</li>
+                                    <li>Active Editorial Assistant: Suggests fixes for abstracts, citations, titles, grammar, and more.</li>
+                                    <li><strong>Research Integrity Policy Detection:</strong> Deep scan for ethics approval, consent, conflict of interest, and data integrity issues.</li>
                                 </ul>
                             </div>
                         )}
@@ -444,13 +495,144 @@ const JournalComplianceChecker: React.FC<{ onBack: () => void }> = ({ onBack }) 
                 <div className="flex border-b border-slate-700 mb-4 overflow-x-auto">
                     <button onClick={() => setReportTab('scoring')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'scoring' ? 'border-b-2 border-teal-500 text-teal-400' : 'text-slate-400 hover:text-white'}`}>Scoring Report</button>
                     <button onClick={() => setReportTab('compliance')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'compliance' ? 'border-b-2 border-purple-500 text-purple-400' : 'text-slate-400 hover:text-white'}`}>Compliance ({selectedManuscript?.complianceReport?.length || 0})</button>
+                    <button onClick={() => setReportTab('integrity')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'integrity' ? 'border-b-2 border-red-500 text-red-400' : 'text-slate-400 hover:text-white'}`}>Research Integrity</button>
                     <button onClick={() => setReportTab('analysis')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'analysis' ? 'border-b-2 border-yellow-500 text-yellow-400' : 'text-slate-400 hover:text-white'}`}>Manuscript Analysis ({selectedManuscript?.analysisReport?.length || 0})</button>
+                    <button onClick={() => setReportTab('editorial')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'editorial' ? 'border-b-2 border-orange-500 text-orange-400' : 'text-slate-400 hover:text-white'}`}>Editorial Assistant</button>
                     <button onClick={() => setReportTab('peerReview')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'peerReview' ? 'border-b-2 border-indigo-500 text-indigo-400' : 'text-slate-400 hover:text-white'}`}>Peer Review</button>
                     <button onClick={() => setReportTab('recommendations')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'recommendations' ? 'border-b-2 border-sky-500 text-sky-400' : 'text-slate-400 hover:text-white'}`}>Recommendations ({selectedManuscript?.journalRecommendations?.length || 0})</button>
                     <button onClick={() => setReportTab('metadata')} className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${reportTab === 'metadata' ? 'border-b-2 border-pink-500 text-pink-400' : 'text-slate-400 hover:text-white'}`}>Metadata Analysis</button>
                 </div>
                  <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
                     {reportTab === 'scoring' && (selectedManuscript?.scores ? <ScoringDashboard scores={selectedManuscript.scores} /> : <p className="text-center text-slate-500 py-8">Scoring data is not available for this manuscript.</p>)}
+                    {reportTab === 'integrity' && (
+                        !selectedManuscript?.integrityReport ? <p className="text-center text-slate-500 py-8">No integrity report generated.</p> :
+                        <div className="space-y-4">
+                            <div className="bg-red-900/10 border-l-4 border-red-500 p-4 rounded mb-6">
+                                <div className="flex items-center gap-2">
+                                    <ShieldCheckIcon className="h-6 w-6 text-red-500" />
+                                    <h4 className="text-lg font-bold text-red-500">Research Integrity Audit</h4>
+                                </div>
+                                <p className="text-sm text-slate-400 mt-1">This automated audit checks for critical policy requirements. A 'Fail' or 'Warning' indicates a potential breach of publication ethics that requires manual review.</p>
+                            </div>
+                            {selectedManuscript.integrityReport.map((item, index) => (
+                                <div key={index} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h5 className="font-semibold text-slate-200">{item.category}</h5>
+                                        <span className={`px-3 py-1 text-xs font-bold rounded-full border ${
+                                            item.status === 'Pass' ? 'bg-green-900/50 text-green-400 border-green-500/50' : 
+                                            item.status === 'Fail' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 
+                                            item.status === 'Warning' ? 'bg-yellow-900/50 text-yellow-400 border-yellow-500/50' : 
+                                            'bg-slate-800 text-slate-400 border-slate-600'
+                                        }`}>
+                                            {item.status.toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-300 mb-3">{item.finding}</p>
+                                    {item.snippet && (
+                                        <div className="bg-slate-950 p-3 rounded text-xs text-slate-400 italic border-l-2 border-slate-600 mb-3">
+                                            "{item.snippet}"
+                                        </div>
+                                    )}
+                                    {item.status !== 'Pass' && item.status !== 'N/A' && (
+                                        <p className="text-sm text-orange-400"><strong className="font-semibold">Recommendation:</strong> {item.recommendation}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {reportTab === 'editorial' && (
+                        !selectedManuscript?.editorialReport ? <p className="text-center text-slate-500 py-8">No editorial enhancements generated.</p> :
+                        <div className="space-y-8">
+                            {/* Metadata Fixes Section */}
+                            <section>
+                                <h4 className="text-lg font-semibold text-orange-400 mb-4 flex items-center"><SparklesIcon className="h-5 w-5 mr-2" />Manuscript Metadata Optimization</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="bg-slate-900 rounded-lg p-4">
+                                        <h5 className="text-sm font-medium text-slate-400 mb-2">Improved Titles (SEO Optimized)</h5>
+                                        <ul className="space-y-2">
+                                            {selectedManuscript.editorialReport.titleSuggestions.map((title, i) => (
+                                                <li key={i} className="flex items-start gap-2 text-slate-200 text-sm">
+                                                    <span className="text-orange-500 font-bold">•</span>
+                                                    {title}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                    <div className="bg-slate-900 rounded-lg p-4">
+                                        <h5 className="text-sm font-medium text-slate-400 mb-2">Optimized Keywords</h5>
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedManuscript.editorialReport.keywordSuggestions.map((kw, i) => (
+                                                <span key={i} className="px-2 py-1 bg-slate-800 text-orange-300 text-xs rounded-full border border-orange-900/50">{kw}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Abstract Rewrite Section */}
+                            <section>
+                                <h4 className="text-lg font-semibold text-orange-400 mb-4 flex items-center"><PencilIcon className="h-5 w-5 mr-2" />Abstract Makeover</h4>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                        <h5 className="text-xs font-bold text-slate-500 uppercase mb-2">Original Abstract</h5>
+                                        <p className="text-sm text-slate-400 leading-relaxed italic">{selectedManuscript.editorialReport.abstractRewrite.original}</p>
+                                    </div>
+                                    <div className="bg-slate-900 rounded-lg p-4 border border-orange-500/30 bg-orange-900/10">
+                                        <h5 className="text-xs font-bold text-orange-400 uppercase mb-2">Suggested Rewrite</h5>
+                                        <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{selectedManuscript.editorialReport.abstractRewrite.rewritten}</p>
+                                        <p className="mt-3 text-xs text-orange-300/70 border-t border-orange-500/20 pt-2"><strong className="text-orange-400">Note:</strong> {selectedManuscript.editorialReport.abstractRewrite.note}</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Content Improvements Section */}
+                            <section>
+                                <h4 className="text-lg font-semibold text-orange-400 mb-4">Content Improvements</h4>
+                                <div className="space-y-4">
+                                    {selectedManuscript.editorialReport.contentImprovements.map((item, index) => (
+                                        <div key={index} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className={`px-2 py-0.5 text-xs font-bold rounded uppercase ${item.type === 'Grammar' ? 'bg-red-900/50 text-red-300' : 'bg-blue-900/50 text-blue-300'}`}>{item.type}</span>
+                                                <span className="text-xs text-slate-500">{item.location}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                                                <div className="bg-red-900/10 p-2 rounded border-l-2 border-red-500/50">
+                                                    <p className="text-xs text-red-300/70 mb-1">Original</p>
+                                                    <p className="text-sm text-slate-300 line-through decoration-red-500/50">{item.originalText}</p>
+                                                </div>
+                                                <div className="bg-green-900/10 p-2 rounded border-l-2 border-green-500/50">
+                                                    <p className="text-xs text-green-300/70 mb-1">Suggested</p>
+                                                    <p className="text-sm text-slate-200">{item.suggestedText}</p>
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-slate-400">Reason: {item.reason}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Ethics & Citations Section */}
+                            <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="text-lg font-semibold text-orange-400 mb-3">Generated Ethics Statement</h4>
+                                    <div className="bg-slate-900 rounded-lg p-4 text-sm text-slate-300 border border-slate-700">
+                                        {selectedManuscript.editorialReport.ethicsStatement}
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="text-lg font-semibold text-orange-400 mb-3">Citation Formatting (Sample)</h4>
+                                    <div className="bg-slate-900 rounded-lg p-4 space-y-3 border border-slate-700">
+                                        {selectedManuscript.editorialReport.citationImprovements.map((cite, i) => (
+                                            <div key={i} className="text-sm">
+                                                <p className="text-slate-500 line-through text-xs mb-1">{cite.original}</p>
+                                                <p className="text-green-400">{cite.suggestion}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    )}
                     {reportTab === 'compliance' && (
                         (selectedManuscript?.complianceReport || []).length === 0 ? <p className="text-center text-slate-500 py-8">No compliance issues found.</p> :
                         selectedManuscript?.complianceReport?.map((finding, index) => (
